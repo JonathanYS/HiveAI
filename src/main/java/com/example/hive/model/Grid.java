@@ -66,6 +66,7 @@ public class Grid {
         for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
             HexCoordinate coord = entry.getKey();
             ImageView tile = entry.getValue().peek();
+            assert tile != null;
             if (tile.getImage().equals(PieceImage.BLANK_TILE.getImage()) && isValidPlacement(coord, isWhiteTurn)) {
                 placements.add(tile);
             }
@@ -82,6 +83,7 @@ public class Grid {
      */
     private <K, V> K getKeyByValue(Map<K, Deque<V>> map, V value) {
         for (Map.Entry<K, Deque<V>> entry : map.entrySet()) {
+            assert entry.getValue().peek() != null;
             if (entry.getValue().peek().equals(value)) {
                 return entry.getKey();
             }
@@ -100,7 +102,7 @@ public class Grid {
         HexCoordinate pieceCoordinate = getKeyByValue(grid, piece);
         PieceImage pieceImage = getPieceTypeFromImageView(piece);
 
-        switch (pieceImage) {
+        switch (Objects.requireNonNull(pieceImage)) {
             case QUEEN_BEE_BLACK:
             case QUEEN_BEE_WHITE:
                 validMovements.addAll(getValidBeeMovements(pieceCoordinate));
@@ -221,12 +223,10 @@ public class Grid {
 
     private boolean canRemove(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate paramCoords) {
         int numPieces = gridCopy.get(paramCoords).size();
-        if (numPieces > 1)
-            return true;
+        return numPieces > 1;
         // if (!mustCheckIntegrity(paramCoords))
         //    return true;
         // return checkIntegrity(paramCoords);
-        return false;
     }
 
     private int countNeighbours(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate coord) {
@@ -410,6 +410,7 @@ public class Grid {
                 visited.add(neighbor1);
                 if (isValidMove(pieceCoordinate, neighbor1)) {
                     System.out.println("HERE +++++++++++++++++++++++++++++++");
+                    System.out.println(neighbor1);
                     System.out.println(getCommonFreeTiles(neighbor1));
                     for (HexCoordinate neighbor2 : getCommonFreeTiles(neighbor1)) {
                         visited.add(neighbor2);
@@ -551,10 +552,9 @@ public class Grid {
         if (hasFreedom(grid, pieceCoordinate)) {
             for (HexCoordinate direction : HexCoordinate.DIRECTIONS) {
                 HexCoordinate targetCoordinate = pieceCoordinate.add(direction);
-                if (grid.get(targetCoordinate).peek().getImage() != PieceImage.BLANK_TILE.getImage()) {
-                    targetCoordinate = targetCoordinate.add(direction);
-                    while (grid.get(targetCoordinate).peek().getImage() != PieceImage.BLANK_TILE.getImage())
-                        targetCoordinate = targetCoordinate.add(direction);
+                if (grid.get(targetCoordinate) != null && Objects.requireNonNull(grid.get(targetCoordinate).peek()).getImage() != PieceImage.BLANK_TILE.getImage()) {
+                    do targetCoordinate = targetCoordinate.add(direction);
+                    while (grid.get(targetCoordinate) != null && Objects.requireNonNull(grid.get(targetCoordinate).peek()).getImage() != PieceImage.BLANK_TILE.getImage());
                     if (isConnectedAfterRemoval(pieceCoordinate, targetCoordinate))
                         validMovements.add(grid.get(targetCoordinate).peek());
                 }
@@ -622,10 +622,14 @@ public class Grid {
             }
         }
 
+        /*
         System.out.println("Neighbors: " + sourceCoordNeighbors);
         for (HexCoordinate tile : sourceCoordNeighbors)
             grid.get(tile).pop();
-        clearNullValues();
+         */
+
+
+        // clearNullValues();
 
     }
 
@@ -757,30 +761,32 @@ public class Grid {
      *
      * @return True if there is a winner, false otherwise.
      */
-    public boolean checkWin() {
-        if (isWhiteTurn) {
-            for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
-                ImageView imageView = entry.getValue().peek();
-                if (imageView.getImage() == PieceImage.QUEEN_BEE_BLACK.getImage()) {
-                    for (HexCoordinate neighbor : getKeyByValue(grid, imageView).getNeighbors()) {
-                        if (getPieceColor(grid.get(neighbor).peek()) != PieceColor.WHITE)
-                            return false;
-                    }
-                    return true;
+    public Map<Boolean, Boolean> checkWin() {
+        Map<Boolean, Boolean> winner = new HashMap<>();
+        winner.put(true, false);
+        winner.put(false, false);
+        boolean wFlag = false, bFlag = false;
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
+            ImageView imageView = entry.getValue().peek();
+            if (imageView.getImage() == PieceImage.QUEEN_BEE_BLACK.getImage()) {
+                winner.put(true, true);
+                for (HexCoordinate neighbor : getKeyByValue(grid, imageView).getNeighbors()) {
+                    if (getPieceColor(grid.get(neighbor).peek()) == PieceColor.NONE)
+                        winner.put(true, false);
                 }
             }
         }
         for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
             ImageView imageView = entry.getValue().peek();
             if (imageView.getImage() == PieceImage.QUEEN_BEE_WHITE.getImage()) {
+                winner.put(false, true);
                 for (HexCoordinate neighbor : getKeyByValue(grid, imageView).getNeighbors()) {
-                    if (getPieceColor(grid.get(neighbor).peek()) != PieceColor.BLACK)
-                        return false;
+                    if (getPieceColor(grid.get(neighbor).peek()) == PieceColor.NONE)
+                        winner.put(false, false);
                 }
-                return true;
             }
         }
-        return false;
+        return winner;
     }
 
     /**
@@ -844,6 +850,10 @@ public class Grid {
      */
     public void advanceTurn() {
         isWhiteTurn = !isWhiteTurn;
+    }
+
+    public boolean canMovePieces() {
+        return queenPlaced.get(isWhiteTurn);
     }
 
 }

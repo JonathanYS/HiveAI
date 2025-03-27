@@ -2,6 +2,7 @@ package com.example.hive;
 
 import com.example.hive.model.*;
 import javafx.application.Platform;
+import javafx.fxml.FXMLLoader;
 import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
@@ -14,6 +15,7 @@ import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.List;
 
@@ -178,6 +180,7 @@ public class GameController {
                     pieceImageView.setOnMouseEntered(event -> placedPieceMouseEnteredEvent(pieceImageView));
                     pieceImageView.setOnMouseExited(event -> placedPieceMouseExitedEvent(pieceImageView));
                 } else {
+                    pieceImageView.setStyle(null);
                     pieceImageView.setOnMouseClicked(null);
                     pieceImageView.setOnMouseEntered(null);
                     pieceImageView.setOnMouseExited(null);
@@ -201,13 +204,15 @@ public class GameController {
      * The main game loop that manages the turns and checks for a win.
      */
     private void gameLoop() {
+        Map<Boolean, Boolean> winner = new HashMap<>();
         boolean stopping = false;
         while (!stopping) {
             currentTurn = gameGrid.getTurn();
-            enablePlacedPieces();
+            if (gameGrid.canMovePieces())
+                enablePlacedPieces();
             moveMade = false;
             if (currentTurn) {
-                // Ensure UI updates are run on the JavaFX Application Thread
+                // Ensure UI updates are run on the JavaFX Application Thread.
                 Platform.runLater(() -> {
                     if (disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0])
                         disableAllPiecesExceptOfQueenBee();
@@ -235,20 +240,49 @@ public class GameController {
                     return; // Exit if interrupted
                 }
             }
-            stopping = gameGrid.checkWin();
+
+            winner = gameGrid.checkWin();
+            stopping = winner.get(true) || winner.get(false);
+            System.out.println("STOPPING: " + stopping);
             if (stopping) {
                 String message;
-                if (currentTurn) {
+                if (winner.get(true)) {
                     message = "White Won!";
                 } else {
                     message = "Black Won!";
                 }
                 System.out.println(message);
+                try {
+                    Thread.sleep(1000);
+                    loadWinScreen(message);
+                } catch (IOException e) {
+                    System.out.println("[IOException] when loading Win Screen.");
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             }
             gameGrid.advanceTurn();
 
         }
 
+    }
+
+    private void loadWinScreen(String winner) throws IOException {
+        FXMLLoader fxmlLoader = new FXMLLoader(GameController.class.getResource("win-screen.fxml"));
+        Scene scene = new Scene(fxmlLoader.load(), 800, 600);
+
+        WinScreenController controller = fxmlLoader.getController();
+        if (controller == null) {
+            System.out.println("Controller is null! FXML might not be set correctly.");
+        } else {
+            controller.setWinnerLabel(winner);
+        }
+
+        Platform.runLater(() -> {
+            primaryStage.setScene(scene);
+            primaryStage.setMaximized(true);
+            primaryStage.show();
+        });
     }
 
     /**
@@ -311,6 +345,7 @@ public class GameController {
     private void makeUnSelectablePieces(ArrayList<ImageView> imagesViews) {
         for (ImageView imageView : imagesViews) {
             if (!disabledPieces.contains(imageView)) {
+                imageView.setStyle("");
                 imageView.setOnMouseClicked(null);
                 imageView.setOnMouseEntered(null);
                 imageView.setOnMouseExited(null);
@@ -523,18 +558,13 @@ public class GameController {
      */
     private void displayValidMovements(List<ImageView> movements) {
         for (ImageView pieceImageView : movements) {
-            pieceImageView.setStyle("-fx-effect: dropshadow(gaussian, yellow, 10, 0.5, 0, 0);");
+            pieceImageView.setStyle("-fx-effect: innershadow(gaussian, blue, 10, 0.5, 0, 0);");
 
             pieceImageView.setOnMouseClicked(event -> {
                 if (selectedPiece != null) {
 
                     gameGrid.movePiece(selectedPiece, pieceImageView);
                     updateHexGrid();
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
 
                     selectedPiece.setStyle(null);
                     selectedPiece = null;
@@ -559,7 +589,7 @@ public class GameController {
 
             });
             pieceImageView.setOnMouseExited(event -> {
-                pieceImageView.setStyle("-fx-effect: innershadow(gaussian, yellow, 20, 0.5, 0, 0);");
+                pieceImageView.setStyle("-fx-effect: innershadow(gaussian, blue, 10, 0.5, 0, 0);");
             });
 
         }

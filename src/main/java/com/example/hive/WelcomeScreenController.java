@@ -8,11 +8,11 @@ import javafx.stage.Stage;
 import javafx.util.Duration;
 
 /**
- * The {@code ColorChoosingController} class handles the user interface for selecting the color of the player's pieces
+ * The {@code WelcomeScreenController} class handles the user interface for selecting the color of the player's pieces
  * (black or white) in the Hive game.
  * It provides functionality for button hover effects and scene transition animations.
  */
-public class ColorChoosingController {
+public class WelcomeScreenController {
 
     private static Stage primaryStage = GameApplication.primaryStage;
 
@@ -23,7 +23,7 @@ public class ColorChoosingController {
     private Button white;
 
     @FXML
-    private StackPane root; // Reference to the StackPane for animation
+    private StackPane root; // Reference to the StackPane for animation.
 
     /**
      * Initializes the scene with button hover effects and a fade-in animation for the root StackPane.

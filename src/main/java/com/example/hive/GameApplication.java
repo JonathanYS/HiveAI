@@ -14,7 +14,7 @@ public class GameApplication extends Application {
     @Override
     public void start(Stage stage) throws IOException {
         primaryStage = stage;
-        FXMLLoader fxmlLoader = new FXMLLoader(GameController.class.getResource("color-choosing.fxml"));
+        FXMLLoader fxmlLoader = new FXMLLoader(GameController.class.getResource("welcome-screen.fxml"));
         Scene scene = new Scene(fxmlLoader.load(), 800, 600);
         stage.setTitle("Hive Game");
         stage.setScene(scene);
