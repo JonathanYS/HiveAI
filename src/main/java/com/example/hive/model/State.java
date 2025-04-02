@@ -1,0 +1,5 @@
+package com.example.hive.model;
+
+public enum State {
+    OPENING, CHECK_IMMEDIATE_WIN, BLOCK_THREAT, SURROUND, IMPROVE_MOBILITY, DEEP_LOOKAHEAD, STANDARD, FINISHED
+}

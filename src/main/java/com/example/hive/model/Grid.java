@@ -3,6 +3,7 @@ package com.example.hive.model;
 import javafx.geometry.Point2D;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.util.Pair;
 
 import java.text.DecimalFormat;
 import java.util.*;
@@ -13,12 +14,18 @@ import java.util.*;
  */
 public class Grid {
 
+    public final static ArrayList<Image> BLACK_PIECES = new ArrayList<>(Arrays.asList(PieceImage.QUEEN_BEE_BLACK.getImage(), PieceImage.ANT_BLACK.getImage(), PieceImage.BEETLE_BLACK.getImage(), PieceImage.GRASSHOPPER_BLACK.getImage(), PieceImage.SPIDER_BLACK.getImage()));
+    public final static ArrayList<Image> WHITE_PIECES = new ArrayList<>(Arrays.asList(PieceImage.QUEEN_BEE_WHITE.getImage(), PieceImage.ANT_WHITE.getImage(), PieceImage.BEETLE_WHITE.getImage(), PieceImage.GRASSHOPPER_WHITE.getImage(), PieceImage.SPIDER_WHITE.getImage()));
     private final Map<HexCoordinate, Deque<ImageView>> grid = new HashMap<>();
+
     private Map<Boolean, Integer> moveCount;
     private Map<Boolean, Boolean> queenPlaced;
     private Map<PieceImage, Integer> piecesCount;  // Track counts of each piece type.
 
     private boolean isWhiteTurn = true; // White's turn.
+
+    // private Set<ImageView> placedBlackPieces = new HashSet<>();
+    // private Set<ImageView> placedWhitePieces = new HashSet<>();
 
     /**
      * Constructs a Grid instance and initializes the game board with starting pieces.
@@ -48,12 +55,41 @@ public class Grid {
     }
 
     /**
-     * Returns the current grid of the game.
+     * Returns the current grid of the game (deep copied grid).
      *
      * @return A map of HexCoordinates to ImageViews representing the grid.
      */
     public Map<HexCoordinate, Deque<ImageView>> getGrid() {
-        return grid;
+        Map<HexCoordinate, Deque<ImageView>> gridCopy = new HashMap<>(grid);
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
+            gridCopy.put(entry.getKey(), new ArrayDeque<>(entry.getValue())); // Ensures a deep copy of stacks.
+        }
+        return gridCopy;
+    }
+
+    public Map<HexCoordinate, Deque<ImageView>> getGrid(Map<HexCoordinate, Deque<ImageView>> gameGrid) {
+        Map<HexCoordinate, Deque<ImageView>> gridCopy = new HashMap<>(gameGrid);
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : gameGrid.entrySet()) {
+            gridCopy.put(entry.getKey(), new ArrayDeque<>(entry.getValue())); // Ensures a deep copy of stacks.
+        }
+        return gridCopy;
+    }
+
+    public Map<PieceImage, Integer> getPiecesCount() {
+        Map<PieceImage, Integer> piecesCountCopy = new HashMap<>();
+        for (Map.Entry<PieceImage, Integer> entry : piecesCount.entrySet()) {
+            if (entry.getValue() > 0)
+                piecesCountCopy.put(entry.getKey(), entry.getValue());
+        }
+        return piecesCountCopy;
+    }
+
+    public Map<Boolean, Boolean> getQueenPlaced() {
+        return new HashMap<>(queenPlaced);
+    }
+
+    public Map<Boolean, Integer> getMoveCount() {
+        return new HashMap<>(moveCount);
     }
 
     /**
@@ -61,9 +97,16 @@ public class Grid {
      *
      * @return A list of ImageViews representing valid placements.
      */
-    public List<ImageView> getValidPlacements() {
+    public List<ImageView> getValidPlacements(boolean isWhiteTurn) {
+        return getValidPlacements(grid, isWhiteTurn);
+    }
+
+    public List<ImageView> getValidPlacements(Map<HexCoordinate, Deque<ImageView>> gridCopy, boolean isWhiteTurn) {
+        boolean stillLeft = isStillLeftPanelPiece(isWhiteTurn);
+        if (!stillLeft)
+            return null;
         List<ImageView> placements = new ArrayList<>();
-        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : gridCopy.entrySet()) {
             HexCoordinate coord = entry.getKey();
             ImageView tile = entry.getValue().peek();
             assert tile != null;
@@ -71,7 +114,27 @@ public class Grid {
                 placements.add(tile);
             }
         }
+
+        /*
+        if (placements.isEmpty())
+            advanceTurn();
+         */
+
         return placements;
+    }
+
+    private boolean isStillLeftPanelPiece(boolean isWhiteTurn) {
+        boolean stillLeft = false;
+        for (Map.Entry<PieceImage, Integer> entry : piecesCount.entrySet()) {
+            if (isWhiteTurn) {
+                if (entry.getKey() == PieceImage.QUEEN_BEE_WHITE || entry.getKey() == PieceImage.ANT_WHITE || entry.getKey() == PieceImage.BEETLE_WHITE || entry.getKey() == PieceImage.GRASSHOPPER_WHITE || entry.getKey() == PieceImage.SPIDER_WHITE)
+                    stillLeft = true;
+            } else {
+                if (entry.getKey() == PieceImage.QUEEN_BEE_BLACK || entry.getKey() == PieceImage.ANT_BLACK || entry.getKey() == PieceImage.BEETLE_BLACK || entry.getKey() == PieceImage.GRASSHOPPER_BLACK || entry.getKey() == PieceImage.SPIDER_BLACK)
+                    stillLeft = true;
+            }
+        }
+        return stillLeft;
     }
 
     /**
@@ -81,7 +144,7 @@ public class Grid {
      * @param value The value to search for.
      * @return The key associated with the value, or null if not found.
      */
-    private <K, V> K getKeyByValue(Map<K, Deque<V>> map, V value) {
+    public <K, V> K getKeyByValue(Map<K, Deque<V>> map, V value) {
         for (Map.Entry<K, Deque<V>> entry : map.entrySet()) {
             assert entry.getValue().peek() != null;
             if (entry.getValue().peek().equals(value)) {
@@ -98,68 +161,77 @@ public class Grid {
      * @return A list of valid movements as ImageViews.
      */
     public List<ImageView> getValidMovements(ImageView piece) {
+        return getValidMovements(grid, piece);
+    }
+
+
+    public List<ImageView> getValidMovements(Map<HexCoordinate, Deque<ImageView>> gridCopy, ImageView piece) {
         List<ImageView> validMovements = new ArrayList<>();
-        HexCoordinate pieceCoordinate = getKeyByValue(grid, piece);
+        HexCoordinate pieceCoordinate = getKeyByValue(gridCopy, piece);
         PieceImage pieceImage = getPieceTypeFromImageView(piece);
+
 
         switch (Objects.requireNonNull(pieceImage)) {
             case QUEEN_BEE_BLACK:
             case QUEEN_BEE_WHITE:
-                validMovements.addAll(getValidBeeMovements(pieceCoordinate));
+                validMovements.addAll(getValidBeeMovements(gridCopy, pieceCoordinate));
                 break;
             case SPIDER_BLACK:
             case SPIDER_WHITE:
-                validMovements.addAll(getValidSpiderMovements(pieceCoordinate));
+                validMovements.addAll(getValidSpiderMovements(gridCopy, pieceCoordinate));
                 break;
             case ANT_BLACK:
             case ANT_WHITE:
-                validMovements.addAll(getValidAntMovements(pieceCoordinate));
+                validMovements.addAll(getValidAntMovements(gridCopy, pieceCoordinate));
                 break;
             case GRASSHOPPER_BLACK:
             case GRASSHOPPER_WHITE:
-                validMovements.addAll(getValidGrasshopperMovements(pieceCoordinate));
+                validMovements.addAll(getValidGrasshopperMovements(gridCopy, pieceCoordinate));
                 break;
             case BEETLE_BLACK:
             case BEETLE_WHITE:
-                validMovements.addAll(getValidBeetleMovements(pieceCoordinate));
+                validMovements.addAll(getValidBeetleMovements(gridCopy, pieceCoordinate));
                 break;
             default:
                 break;
         }
+
         return validMovements;
     }
 
-    public boolean isValidMove(HexCoordinate from, HexCoordinate to) {
-        if (grid.containsKey(to) && grid.get(to).peek().getImage() != PieceImage.BLANK_TILE.getImage()) {
-            System.out.println(131);
+
+
+    public boolean isValidMove(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate from, HexCoordinate to) {
+        if (gridCopy.containsKey(to) && gridCopy.get(to).peek().getImage() != PieceImage.BLANK_TILE.getImage()) {
+            // System.out.println(131);
             return false;
         }
 
-        Deque<ImageView> fromStack = grid.get(from);
-        Deque<ImageView> toStack = grid.get(to);
+        Deque<ImageView> fromStack = gridCopy.get(from);
+        Deque<ImageView> toStack = gridCopy.get(to);
         if (fromStack == null || fromStack.isEmpty() || toStack == null || toStack.isEmpty()) {
-            System.out.println(138);
+            // System.out.println(138);
             return false;
         }
 
         // ImageView movingPiece = fromStack.peek();
         // boolean isWhite = movingPiece.getId().contains("white");
 
-        if (!canSlide(from, to)) {
-            System.out.println(to);
-            System.out.println(146);
+        if (!canSlide(gridCopy, from, to)) {
+            // System.out.println(to);
+            // System.out.println(146);
             return false;
         }
 
-        if (!hasFreedomToMove(from, to)) {
-            System.out.println(151);
+        if (!hasFreedomToMove(gridCopy, from, to)) {
+            // System.out.println(151);
             return false;
         }
 
         return true;
     }
 
-    private boolean canSlide(HexCoordinate from, HexCoordinate to) {
+    private boolean canSlide(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate from, HexCoordinate to) {
         if (from.equals(to)) return false;  // Can't slide to the same tile.
 
         Set<HexCoordinate> visited = new HashSet<>();
@@ -172,7 +244,7 @@ public class Grid {
             HexCoordinate current = queue.poll();
 
             for (HexCoordinate neighbor : current.getNeighbors()) {
-                if (!visited.contains(neighbor) && grid.containsKey(neighbor) && grid.get(neighbor).peek().getImage() == PieceImage.BLANK_TILE.getImage()) {
+                if (!visited.contains(neighbor) && gridCopy.containsKey(neighbor) && gridCopy.get(neighbor).peek().getImage() == PieceImage.BLANK_TILE.getImage()) {
                     queue.add(neighbor);
                     visited.add(neighbor);
 
@@ -184,24 +256,21 @@ public class Grid {
     }
 
 
-    private boolean hasFreedomToMove(HexCoordinate from, HexCoordinate to) {
-        return isConnectedAfterRemoval(from, to);
+    private boolean hasFreedomToMove(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate from, HexCoordinate to) {
+        return isConnectedAfterRemoval(gridCopy, from, to);
     }
 
-    private boolean isFreedomToMoveBeetle(HexCoordinate from, HexCoordinate to) {
-        if (grid.get(to).size() == grid.get(from).size() + 1) {
-            if (!canSlide(from, to))
+    private boolean isFreedomToMoveBeetle(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate from, HexCoordinate to) {
+        if (gridCopy.get(to).size() == gridCopy.get(from).size() + 1) {
+            if (!canSlide(gridCopy, from, to))
                 return false;
         }
 
-        return hasFreedomToMove(from, to);
+        return hasFreedomToMove(gridCopy, from, to);
     }
 
-    private boolean isConnectedAfterRemoval(HexCoordinate from, HexCoordinate to) {
-        Map<HexCoordinate, Deque<ImageView>> gridCopy = new HashMap<>(grid);
-        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
-            gridCopy.put(entry.getKey(), new ArrayDeque<>(entry.getValue())); // Ensures a deep copy of stacks.
-        }
+    private boolean isConnectedAfterRemoval(Map<HexCoordinate, Deque<ImageView>> gameGrid, HexCoordinate from, HexCoordinate to) {
+        Map<HexCoordinate, Deque<ImageView>> gridCopy = getGrid(gameGrid);
 
         // System.out.println(PieceImage.BLANK_TILE.getImage());
         // System.out.println("STACK BEFORE POP: " + gridCopy.get(from).peek().getImage());
@@ -229,7 +298,33 @@ public class Grid {
         // return checkIntegrity(paramCoords);
     }
 
-    private int countNeighbours(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate coord) {
+    public HexCoordinate getQueenCoordinate(Map<HexCoordinate, Deque<ImageView>> gridCopy, boolean isWhiteTurn) {
+        HexCoordinate queenCoord = null;
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : gridCopy.entrySet()) {
+            Deque<ImageView> queue = entry.getValue();
+            Deque<ImageView> restoreQueue = new ArrayDeque<>();
+            ImageView imageView = null;
+            boolean queenFound = false;
+
+            while (queue.size() > 1 && !queenFound) {
+                imageView = queue.pop();
+                restoreQueue.push(imageView);
+
+                if (((isWhiteTurn && imageView.getImage() == PieceImage.QUEEN_BEE_WHITE.getImage()) ||(!isWhiteTurn && imageView.getImage() == PieceImage.QUEEN_BEE_BLACK.getImage()))) {
+                    queenCoord = entry.getKey();
+                    queenFound = true;
+                }
+            }
+            while (!restoreQueue.isEmpty()) {
+                queue.push(restoreQueue.pop());
+            }
+            if (queenFound)
+                return queenCoord;
+        }
+        return null;
+    }
+
+    public int countNeighbours(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate coord) {
         int counter = 0;
         for (HexCoordinate neighbor : coord.getNeighbors()) {
             if (gridCopy.containsKey(neighbor) && gridCopy.get(neighbor) != null && Objects.requireNonNull(gridCopy.get(neighbor).peek()).getImage() != PieceImage.BLANK_TILE.getImage())
@@ -239,6 +334,7 @@ public class Grid {
     }
 
     private boolean hasFreedom(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate coord) {
+        // System.out.println("COORDINATE: " + coord);
         switch (getPieceTypeFromImageView(gridCopy.get(coord).peek())) {
             case BEETLE_BLACK:
             case BEETLE_WHITE:
@@ -369,17 +465,17 @@ public class Grid {
      * @param pieceCoordinate The current position of the Bee piece.
      * @return A list of valid movement tiles for the Bee.
      */
-    private List<ImageView> getValidBeeMovements(HexCoordinate pieceCoordinate) {
+    private List<ImageView> getValidBeeMovements(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate pieceCoordinate) {
         List<ImageView> validMovements = new ArrayList<>();
         // Bee can move one tile in any direction.
-        if (hasFreedom(grid, pieceCoordinate)) {
+        if (hasFreedom(gridCopy, pieceCoordinate)) {
             for (HexCoordinate neighbor : pieceCoordinate.getNeighbors()) {
-                ImageView targetTile = grid.get(neighbor).peek();
-                if (isValidMove(pieceCoordinate, neighbor)) {
+                ImageView targetTile = gridCopy.get(neighbor).peek();
+                if (isValidMove(gridCopy, pieceCoordinate, neighbor)) {
                     validMovements.add(targetTile);
                 }
             }
-            System.out.println("validMovements: " + validMovements);
+            // System.out.println("validMovements: " + validMovements);
         }
         return validMovements;
     }
@@ -391,35 +487,35 @@ public class Grid {
      * @param pieceCoordinate The current position of the Spider piece.
      * @return A list of valid movement tiles for the Spider.
      */
-    private List<ImageView> getValidSpiderMovements(HexCoordinate pieceCoordinate) {
+    private List<ImageView> getValidSpiderMovements(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate pieceCoordinate) {
         List<ImageView> validMovements = new ArrayList<>();
         // Ant can move any number of tiles in a straight line ("sliding").
         Queue<HexCoordinate> queue = new LinkedList<>();
         Set<HexCoordinate> visited = new HashSet<>();
-        if (hasFreedom(grid, pieceCoordinate)) {
+        if (hasFreedom(gridCopy, pieceCoordinate)) {
 
             queue.add(pieceCoordinate);
             visited.add(pieceCoordinate);
 
             int counter = 0;
-            System.out.println(queue);
+            // System.out.println(queue);
             HexCoordinate coord = queue.poll();
 
 
             for (HexCoordinate neighbor1 : getCommonFreeTiles(coord)) {
                 visited.add(neighbor1);
-                if (isValidMove(pieceCoordinate, neighbor1)) {
-                    System.out.println("HERE +++++++++++++++++++++++++++++++");
-                    System.out.println(neighbor1);
-                    System.out.println(getCommonFreeTiles(neighbor1));
+                if (isValidMove(gridCopy, pieceCoordinate, neighbor1)) {
+                    // System.out.println("HERE +++++++++++++++++++++++++++++++");
+                    // System.out.println(neighbor1);
+                    // System.out.println(getCommonFreeTiles(neighbor1));
                     for (HexCoordinate neighbor2 : getCommonFreeTiles(neighbor1)) {
                         visited.add(neighbor2);
-                        if (isValidMove(pieceCoordinate, neighbor2)) {
+                        if (isValidMove(gridCopy, pieceCoordinate, neighbor2)) {
                             for (HexCoordinate neighbor3 : getCommonFreeTiles(neighbor2)) {
                                 if (!visited.contains(neighbor3)) {
                                     visited.add(neighbor3);
-                                    if (isValidMove(pieceCoordinate, neighbor3)) {
-                                        validMovements.add(grid.get(neighbor3).peek());
+                                    if (isValidMove(gridCopy, pieceCoordinate, neighbor3)) {
+                                        validMovements.add(gridCopy.get(neighbor3).peek());
                                     }
                                 }
                             }
@@ -461,9 +557,11 @@ public class Grid {
 
     }
 
+
     /**
      * Recursive DFS function to find all valid spider paths.
      */
+    /*
     private void findSpiderPathsRecursive(HexCoordinate current, List<HexCoordinate> path,
                                  Set<HexCoordinate> visited, List<List<HexCoordinate>> paths, int depth) {
         if (depth == 0) {
@@ -485,6 +583,7 @@ public class Grid {
         visited.remove(current);
         path.remove(path.size() - 1);
     }
+    */
 
     private List<HexCoordinate> getFreeCoords() {
         List<HexCoordinate> freeCoords = new ArrayList<>();
@@ -504,13 +603,13 @@ public class Grid {
      * @param pieceCoordinate The current position of the Ant piece.
      * @return A list of valid movement tiles for the Ant.
      */
-    private List<ImageView> getValidAntMovements(HexCoordinate pieceCoordinate) {
+    private List<ImageView> getValidAntMovements(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate pieceCoordinate) {
         List<ImageView> validMovements = new ArrayList<>();
         // Ant can move any number of tiles in a straight line ("sliding").
         Queue<HexCoordinate> queue = new LinkedList<>();
         List<HexCoordinate> freeCoords = getFreeCoords();
         Set<HexCoordinate> visited = new HashSet<>();
-        if (hasFreedom(grid, pieceCoordinate)) {
+        if (hasFreedom(gridCopy, pieceCoordinate)) {
 
             queue.add(pieceCoordinate);
             visited.add(pieceCoordinate);
@@ -518,21 +617,21 @@ public class Grid {
             boolean flag = true;
             while (!queue.isEmpty()) {
                 flag = false;
-                System.out.println(queue);
+                // System.out.println(queue);
                 HexCoordinate coord = queue.poll();
                 for (HexCoordinate neighbor : coord.getNeighbors()) {
                     if (!visited.contains(neighbor)) {
                         visited.add(neighbor);
-                        if (isValidMove(pieceCoordinate, neighbor)) {
+                        if (isValidMove(gridCopy, pieceCoordinate, neighbor)) {
                             queue.add(neighbor);
                             flag = true;
-                            validMovements.add(grid.get(neighbor).peek());
+                            validMovements.add(gridCopy.get(neighbor).peek());
                         }
                     }
                 }
 
             }
-            System.out.println("\t\t" + flag + "\t\t");
+            // System.out.println("\t\t" + flag + "\t\t");
 
 
         }
@@ -546,17 +645,17 @@ public class Grid {
      * @param pieceCoordinate The current position of the Grasshopper piece.
      * @return A list of valid movement tiles for the Grasshopper.
      */
-    private List<ImageView> getValidGrasshopperMovements(HexCoordinate pieceCoordinate) {
+    private List<ImageView> getValidGrasshopperMovements(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate pieceCoordinate) {
         List<ImageView> validMovements = new ArrayList<>();
         // Grasshopper must jump over pieces in a straight line.
-        if (hasFreedom(grid, pieceCoordinate)) {
+        if (hasFreedom(gridCopy, pieceCoordinate)) {
             for (HexCoordinate direction : HexCoordinate.DIRECTIONS) {
                 HexCoordinate targetCoordinate = pieceCoordinate.add(direction);
-                if (grid.get(targetCoordinate) != null && Objects.requireNonNull(grid.get(targetCoordinate).peek()).getImage() != PieceImage.BLANK_TILE.getImage()) {
+                if (gridCopy.get(targetCoordinate) != null && Objects.requireNonNull(gridCopy.get(targetCoordinate).peek()).getImage() != PieceImage.BLANK_TILE.getImage()) {
                     do targetCoordinate = targetCoordinate.add(direction);
-                    while (grid.get(targetCoordinate) != null && Objects.requireNonNull(grid.get(targetCoordinate).peek()).getImage() != PieceImage.BLANK_TILE.getImage());
-                    if (isConnectedAfterRemoval(pieceCoordinate, targetCoordinate))
-                        validMovements.add(grid.get(targetCoordinate).peek());
+                    while (gridCopy.get(targetCoordinate) != null && Objects.requireNonNull(gridCopy.get(targetCoordinate).peek()).getImage() != PieceImage.BLANK_TILE.getImage());
+                    if (isConnectedAfterRemoval(gridCopy, pieceCoordinate, targetCoordinate))
+                        validMovements.add(gridCopy.get(targetCoordinate).peek());
                 }
             }
         }
@@ -570,13 +669,13 @@ public class Grid {
      * @param pieceCoordinate The current position of the Beetle piece.
      * @return A list of valid movement tiles for the Beetle.
      */
-    private List<ImageView> getValidBeetleMovements(HexCoordinate pieceCoordinate) {
+    private List<ImageView> getValidBeetleMovements(Map<HexCoordinate, Deque<ImageView>> gridCopy, HexCoordinate pieceCoordinate) {
         List<ImageView> validMovements = new ArrayList<>();
 
-        if (hasFreedom(grid, pieceCoordinate)) {
+        if (hasFreedom(gridCopy, pieceCoordinate)) {
             for (HexCoordinate neighbor : pieceCoordinate.getNeighbors()) {
-                if (isFreedomToMoveBeetle(pieceCoordinate, neighbor))
-                    validMovements.add(grid.get(neighbor).peek());
+                if (isFreedomToMoveBeetle(gridCopy, pieceCoordinate, neighbor))
+                    validMovements.add(gridCopy.get(neighbor).peek());
             }
         }
         return validMovements;
@@ -589,11 +688,17 @@ public class Grid {
      * @param targetPiece   The target position where the piece will be moved to.
      */
     public void movePiece(ImageView selectedPiece, ImageView targetPiece) {
-        HexCoordinate targetCoord = getKeyByValue(grid, targetPiece);
-        HexCoordinate sourceCoord = getKeyByValue(grid, selectedPiece);
+        Pair<ImageView, ImageView> pair = new Pair<>(selectedPiece, targetPiece);
+        movePiece(grid, pair);
+        advanceTurn();
+    }
 
-        Deque<ImageView> targetStack = grid.get(targetCoord);
-        Deque<ImageView> sourceStack = grid.get(sourceCoord);
+    public Map<HexCoordinate, Deque<ImageView>> movePiece(Map<HexCoordinate, Deque<ImageView>> gridCopy, Pair<ImageView, ImageView> move) {
+        HexCoordinate targetCoord = getKeyByValue(gridCopy, move.getValue());
+        HexCoordinate sourceCoord = getKeyByValue(gridCopy, move.getKey());
+
+        Deque<ImageView> targetStack = gridCopy.get(targetCoord);
+        Deque<ImageView> sourceStack = gridCopy.get(sourceCoord);
 
 
         targetStack.push(sourceStack.pop());
@@ -603,17 +708,17 @@ public class Grid {
         }
 
         for (HexCoordinate neighbor : targetCoord.getNeighbors()) {
-            if (!grid.containsKey(neighbor)) {
+            if (!gridCopy.containsKey(neighbor)) {
                 Deque<ImageView> stack = new ArrayDeque<>();
                 stack.push(new ImageView(PieceImage.BLANK_TILE.getImage()));
-                grid.put(neighbor, stack);
+                gridCopy.put(neighbor, stack);
             }
         }
 
         ArrayList<HexCoordinate> sourceCoordNeighbors = sourceCoord.getNeighbors();
-        System.out.println("Neighbors: " + sourceCoordNeighbors);
+        // System.out.println("Neighbors: " + sourceCoordNeighbors);
         for (HexCoordinate neighbor : sourceCoord.getNeighbors()) {
-            if (grid.get(neighbor).peek().getImage() != PieceImage.BLANK_TILE.getImage()) {
+            if (gridCopy.get(neighbor).peek().getImage() != PieceImage.BLANK_TILE.getImage()) {
                 for (HexCoordinate neighborOfNeighbor : neighbor.getNeighbors()) {
                     if (neighborOfNeighbor != targetCoord)
                         sourceCoordNeighbors.remove(neighborOfNeighbor);
@@ -630,7 +735,7 @@ public class Grid {
 
 
         // clearNullValues();
-
+        return gridCopy;
     }
 
     private void clearNullValues() {
@@ -693,9 +798,20 @@ public class Grid {
      * @return 1 if the Queen Bee has not been placed and the player needs to place it, 0 otherwise.
      */
     public int placePiece(Boolean isWhite, ImageView newPiece, ImageView oldPiece) {
-        List<HexCoordinate> neighborsToAdd = new ArrayList<>();
+        Pair<Map<HexCoordinate, Deque<ImageView>>, Integer> pair = placePiece(grid, isWhite, newPiece, oldPiece, queenPlaced, piecesCount, moveCount);
+        advanceTurn();
+        return pair.getValue();
+    }
 
-        Iterator<Map.Entry<HexCoordinate, Deque<ImageView>>> iterator = grid.entrySet().iterator();
+    public Pair<Map<HexCoordinate, Deque<ImageView>>, Integer> placePiece(Map<HexCoordinate, Deque<ImageView>> gridCopy,
+                                                                          Boolean isWhite, ImageView newPiece,
+                                                                          ImageView oldPiece, Map<Boolean,
+            Boolean> queenPlaced, Map<PieceImage, Integer> piecesCount, Map<Boolean, Integer> moveCount) {
+        Pair<Map<HexCoordinate, Deque<ImageView>>, Integer> returnedPair;
+        List<HexCoordinate> neighborsToAdd = new ArrayList<>();
+        ImageView placedImageView = new ImageView(newPiece.getImage());
+
+        Iterator<Map.Entry<HexCoordinate, Deque<ImageView>>> iterator = gridCopy.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<HexCoordinate, Deque<ImageView>> entry = iterator.next();
             Deque<ImageView> stack = entry.getValue();
@@ -703,25 +819,34 @@ public class Grid {
             HexCoordinate pieceImageCoord = entry.getKey();
 
             if (pieceImageView == oldPiece) {
-                stack.push(new ImageView(newPiece.getImage()));
+                stack.push(placedImageView);
                 PieceImage pieceType = getPieceTypeFromImageView(newPiece);
                 if (pieceType == PieceImage.QUEEN_BEE_BLACK || pieceType == PieceImage.QUEEN_BEE_WHITE) {
                     queenPlaced.put(isWhite, true);
                 }
                 ArrayList<HexCoordinate> neighboors = pieceImageCoord.getNeighbors();
                 for (HexCoordinate neighbor : neighboors) {
-                    if (!grid.containsKey(neighbor)) {
+                    if (!gridCopy.containsKey(neighbor)) {
                         neighborsToAdd.add(neighbor);
                     }
                 }
             }
         }
 
+        /*
+        if (isWhite)
+            placedWhitePieces.add(placedImageView);
+        else
+            placedBlackPieces.add(placedImageView);
+         */
+
         for (HexCoordinate neighbor : neighborsToAdd) {
             Deque<ImageView> stack = new ArrayDeque<>();
             stack.push(new ImageView(PieceImage.BLANK_TILE.getImage()));
-            grid.put(neighbor, stack);
+            gridCopy.put(neighbor, stack);
         }
+
+
         PieceImage pieceType = getPieceTypeFromImageView(newPiece);
         if (pieceType != null) {
             int count = piecesCount.get(pieceType);
@@ -729,15 +854,18 @@ public class Grid {
             piecesCount.put(pieceType, count);
         }
 
+
+
         moveCount.put(isWhite, moveCount.get(isWhite) + 1);
 
         int moves = moveCount.get(isWhite);
         boolean queenIsPlaced = queenPlaced.get(isWhite);
         if (moves == 3 && !queenIsPlaced) {
-            return 1;
+            returnedPair = new Pair<>(gridCopy, 1);
+            return returnedPair;
         }
-
-        return 0;
+        returnedPair = new Pair<>(gridCopy, 0);
+        return returnedPair;
     }
 
     /**
@@ -762,27 +890,40 @@ public class Grid {
      * @return True if there is a winner, false otherwise.
      */
     public Map<Boolean, Boolean> checkWin() {
+        return checkWin(grid);
+    }
+
+    public Map<Boolean, Boolean> checkWin(Map<HexCoordinate, Deque<ImageView>> gridCopy) {
         Map<Boolean, Boolean> winner = new HashMap<>();
         winner.put(true, false);
         winner.put(false, false);
-        boolean wFlag = false, bFlag = false;
-        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : gridCopy.entrySet()) {
             ImageView imageView = entry.getValue().peek();
             if (imageView.getImage() == PieceImage.QUEEN_BEE_BLACK.getImage()) {
                 winner.put(true, true);
-                for (HexCoordinate neighbor : getKeyByValue(grid, imageView).getNeighbors()) {
-                    if (getPieceColor(grid.get(neighbor).peek()) == PieceColor.NONE)
+                for (HexCoordinate neighbor : getKeyByValue(gridCopy, imageView).getNeighbors()) {
+                    if (getPieceColor(gridCopy.get(neighbor).peek()) == PieceColor.NONE)
                         winner.put(true, false);
                 }
             }
         }
-        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : gridCopy.entrySet()) {
             ImageView imageView = entry.getValue().peek();
             if (imageView.getImage() == PieceImage.QUEEN_BEE_WHITE.getImage()) {
                 winner.put(false, true);
-                for (HexCoordinate neighbor : getKeyByValue(grid, imageView).getNeighbors()) {
-                    if (getPieceColor(grid.get(neighbor).peek()) == PieceColor.NONE)
+                for (HexCoordinate neighbor : getKeyByValue(gridCopy, imageView).getNeighbors()) {
+                    if (getPieceColor(gridCopy.get(neighbor).peek()) == PieceColor.NONE)
                         winner.put(false, false);
+                }
+            }
+        }
+
+        if (!winner.get(true) && !winner.get(false)) {
+            if (getLegalMoves(isWhiteTurn).isEmpty() && getValidPlacements(isWhiteTurn).isEmpty()) {
+                advanceTurn();
+                if (getLegalMoves(isWhiteTurn).isEmpty() && getValidPlacements(isWhiteTurn).isEmpty()) {
+                    winner.put(true, true);
+                    winner.put(false, true);
                 }
             }
         }
@@ -799,6 +940,22 @@ public class Grid {
         for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
             if (entry.getValue().peek().getImage() != PieceImage.BLANK_TILE.getImage())
                 counter++;
+        }
+        return counter;
+    }
+
+    public int getPlacedPiecesCount(boolean isWhite) {
+        int counter = 0;
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
+            if (isWhite) {
+                if (WHITE_PIECES.contains(entry.getValue().peek().getImage())) {
+                    counter++;
+                }
+            } else {
+                if (BLACK_PIECES.contains(entry.getValue().peek().getImage())) {
+                    counter++;
+                }
+            }
         }
         return counter;
     }
@@ -856,4 +1013,38 @@ public class Grid {
         return queenPlaced.get(isWhiteTurn);
     }
 
+
+    public List<Pair<ImageView, ImageView>> getLegalMoves(boolean isWhiteTurn) {
+        return getLegalMoves(grid, isWhiteTurn);
+    }
+
+    public List<Pair<ImageView, ImageView>> getLegalMoves(Map<HexCoordinate, Deque<ImageView>> gridCopy, boolean isWhiteTurn) {
+        List<Pair<ImageView, ImageView>> legalMoves = new ArrayList<>();
+        List<ImageView> possibleMoves;
+
+        // Set<ImageView> placedPieces = isWhiteTurn ? placedWhitePieces : placedBlackPieces;
+
+        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : gridCopy.entrySet()) {
+            ImageView piece = entry.getValue().peek();
+            if (piece != null && ((isWhiteTurn && WHITE_PIECES.contains(piece.getImage())) || (!isWhiteTurn && BLACK_PIECES.contains(piece.getImage())))) {
+                possibleMoves = getValidMovements(gridCopy, piece);
+                for (ImageView possibleMove : possibleMoves) {
+                    Pair<ImageView, ImageView> pair = new Pair<>(piece, possibleMove);
+                    legalMoves.add(pair);
+                }
+            }
+        }
+        return legalMoves;
+    }
+
+    public int countTotalLegalMoves(Map<HexCoordinate, Deque<ImageView>> gridCopy, boolean isWhite) {
+        List<Pair<ImageView, ImageView>> legalMoves = getLegalMoves(gridCopy, isWhite);
+        List<ImageView> legalPlacements = getValidPlacements(gridCopy, isWhite);
+        return legalMoves.size() + legalPlacements.size();
+    }
+
+    public int countLegalMovesForPiece(Map<HexCoordinate, Deque<ImageView>> gridCopy, ImageView piece) {
+        List<ImageView> validPieceMovements = getValidMovements(piece);
+        return validPieceMovements.size();
+    }
 }

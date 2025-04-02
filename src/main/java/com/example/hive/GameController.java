@@ -36,12 +36,13 @@ public class GameController {
     private ArrayList<ImageView> whitePlacementPieces = new ArrayList<>();
     private ArrayList<ImageView> blackPlacementPieces = new ArrayList<>();
 
-    private boolean moveMade;
+    private volatile boolean moveMade;
     private boolean[] disableAllPiecesExceptOfQueenBee = new boolean[2];
     private boolean[] isQueenBeeForcedPlaced = {false, false};
-    private boolean currentTurn = true;
+    private boolean currentTurn = true; // Current turn is white's.
 
     private BorderPane root;
+    private AIPlayer aiPlayer;
 
     /**
      * Constructor to initialize the GameController with the stage and whether the human player is white.
@@ -52,6 +53,13 @@ public class GameController {
     public GameController(Stage stage, boolean isWhite) {
         primaryStage = stage;
         this.isWhite = isWhite;
+        movesCount = 0;
+        isQueenBeePlaced = false;
+        aiPlayer = new AIPlayer(gameGrid, !isWhite);
+    }
+
+    public GameController(Stage stage) {
+        primaryStage = stage;
         movesCount = 0;
         isQueenBeePlaced = false;
     }
@@ -162,12 +170,13 @@ public class GameController {
      * Enables interaction with the placed pieces based on the current turn.
      */
     private void enablePlacedPieces() {
-        List<PieceImage> pieceImages;
-        if (currentTurn) {
-            pieceImages = PieceImage.getPiecesByColor(PieceColor.WHITE);
-        }
-        else {
-            pieceImages = PieceImage.getPiecesByColor(PieceColor.BLACK);
+        List<PieceImage> pieceImages = new ArrayList<>();
+        if (gameGrid.canMovePieces()) {
+            if (currentTurn) {
+                pieceImages = PieceImage.getPiecesByColor(PieceColor.WHITE);
+            } else {
+                pieceImages = PieceImage.getPiecesByColor(PieceColor.BLACK);
+            }
         }
         // System.out.println(pieceImages);
 
@@ -204,31 +213,65 @@ public class GameController {
      * The main game loop that manages the turns and checks for a win.
      */
     private void gameLoop() {
-        Map<Boolean, Boolean> winner = new HashMap<>();
         boolean stopping = false;
         while (!stopping) {
             currentTurn = gameGrid.getTurn();
-            if (gameGrid.canMovePieces())
-                enablePlacedPieces();
+            enablePlacedPieces();
             moveMade = false;
             if (currentTurn) {
-                // Ensure UI updates are run on the JavaFX Application Thread.
-                Platform.runLater(() -> {
-                    if (disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0])
-                        disableAllPiecesExceptOfQueenBee();
-                    else
-                        makeSelectablePieces(whitePlacementPieces);
-                    makeUnSelectablePieces(blackPlacementPieces);
-                });
+                if (aiPlayer == null || isWhite) {
+                    // Ensure UI updates are run on the JavaFX Application Thread.
+                    Platform.runLater(() -> {
+                        if (disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0])
+                            disableAllPiecesExceptOfQueenBee();
+                        else
+                            makeSelectablePieces(whitePlacementPieces);
+                        makeUnSelectablePieces(blackPlacementPieces);
+                    });
+                }
             }
             else {
-                Platform.runLater(() -> {
-                    if (disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0])
-                        disableAllPiecesExceptOfQueenBee();
-                    else
-                        makeSelectablePieces(blackPlacementPieces);
-                    makeUnSelectablePieces(whitePlacementPieces);
+                if (aiPlayer == null || !isWhite) {
+                    Platform.runLater(() -> {
+                        if (disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0])
+                            disableAllPiecesExceptOfQueenBee();
+                        else
+                            makeSelectablePieces(blackPlacementPieces);
+                        makeUnSelectablePieces(whitePlacementPieces);
+                    });
+                }
+            }
+
+            if (aiPlayer != null && currentTurn != isWhite) {
+                Thread aiMove = new Thread(() -> {
+                    ImageView piece = aiPlayer.makeMove();
+                    moveMade = true;
+                    if (piece != null) {
+                        Iterator<Node> iterator = piecesPanel.getChildren().iterator();
+                        boolean flag = false;
+                        while (iterator.hasNext() && !flag) {
+                            ImageView temp = (ImageView) iterator.next();
+                            if (temp.getImage() == piece.getImage()) {
+                                piece = temp;
+                                flag = true;
+                            }
+                        }
+                        System.out.println(piece.getImage());
+                        int pieceCount = gameGrid.getPieceCount(piece);
+                        System.out.println("pieceCount: " + pieceCount);
+                        if (pieceCount == 0) {
+                            ColorAdjust grayScale = new ColorAdjust();
+                            grayScale.setSaturation(-1);
+                            piece.setEffect(grayScale);
+                            piece.setOnMouseEntered(null);
+                            piece.setOnMouseExited(null);
+                            piece.setOnMouseClicked(null);
+                            disabledPieces.add(piece);
+                        }
+                    }
                 });
+                aiMove.setDaemon(true);
+                aiMove.start();
             }
 
             // Wait until the move is made
@@ -241,30 +284,41 @@ public class GameController {
                 }
             }
 
-            winner = gameGrid.checkWin();
-            stopping = winner.get(true) || winner.get(false);
-            System.out.println("STOPPING: " + stopping);
-            if (stopping) {
-                String message;
-                if (winner.get(true)) {
-                    message = "White Won!";
-                } else {
-                    message = "Black Won!";
-                }
-                System.out.println(message);
-                try {
-                    Thread.sleep(1000);
-                    loadWinScreen(message);
-                } catch (IOException e) {
-                    System.out.println("[IOException] when loading Win Screen.");
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            gameGrid.advanceTurn();
+            Platform.runLater(this::updateHexGrid);
+            stopping = checkWin();
+            // gameGrid.advanceTurn();
 
         }
 
+    }
+
+    private boolean checkWin() {
+        boolean stopping;
+        Map<Boolean, Boolean> winner = new HashMap<>();
+        winner = gameGrid.checkWin();
+        stopping = winner.get(true) || winner.get(false);
+        System.out.println("STOPPING: " + stopping);
+        if (stopping) {
+            String message;
+            if (winner.get(true)) {
+                if (winner.get(false))
+                    message = "It is a stalemate!";
+                else
+                    message = "White Won!";
+            } else {
+                message = "Black Won!";
+            }
+            System.out.println(message);
+            try {
+                Thread.sleep(1000);
+                loadWinScreen(message);
+            } catch (IOException e) {
+                System.out.println("[IOException] when loading Win Screen.");
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return stopping;
     }
 
     private void loadWinScreen(String winner) throws IOException {
@@ -422,7 +476,7 @@ public class GameController {
             }
             imageView.setStyle("-fx-effect: dropshadow(gaussian, green, 10, 0.5, 0, 0);");
             selectedPiece = imageView;
-            List<ImageView> validPlacements = gameGrid.getValidPlacements();
+            List<ImageView> validPlacements = gameGrid.getValidPlacements(gameGrid.getTurn());
             displayValidPlacements(validPlacements);
             currentDisplayedPlacements = validPlacements;
         }
