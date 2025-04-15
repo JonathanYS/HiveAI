@@ -3,22 +3,28 @@ package com.example.hive;
 import com.example.hive.model.*;
 import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
+import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
+import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.ScrollBar;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.effect.ColorAdjust;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Pane;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import org.pcollections.PMap;
 import org.pcollections.PStack;
 
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.util.*;
 import java.util.List;
 
@@ -37,6 +43,7 @@ public class GameController {
     private int movesCount;
     private boolean isQueenBeePlaced;
     private VBox piecesPanel;
+    private ScrollPane scrollPane;
     private ArrayList<ImageView> disabledPieces = new ArrayList<>();
     private ArrayList<ImageView> whitePlacementPieces = new ArrayList<>();
     private ArrayList<ImageView> blackPlacementPieces = new ArrayList<>();
@@ -75,19 +82,39 @@ public class GameController {
      * Sets up the initial scene with the game board and the pieces panel.
      */
     public void setGameScene() {
-        root = new BorderPane();
 
         gameBoardPane = new Pane();
         gameBoardPane.setStyle("-fx-background-color: #444244;");
+        gameBoardPane.setPrefSize(3000, 3000);
 
-        root.setCenter(gameBoardPane);
+        Group group = new Group(gameBoardPane); // Allows overflow beyond pref size
+        StackPane centeredContainer = new StackPane(group); // This will center the group
 
-        gameBoardPane.widthProperty().addListener((observableValue, number, t1) -> {
-            updateHexGrid();
+        scrollPane = new ScrollPane();
+        Platform.runLater(() -> {
+            Node viewport = scrollPane.lookup(".viewport");
+            if (viewport != null) {
+                viewport.setStyle("-fx-background-color: #444244;");
+            }
         });
-        gameBoardPane.heightProperty().addListener((observableValue, number, t1) -> {
-            updateHexGrid();
+        scrollPane.setContent(centeredContainer);
+        scrollPane.setPannable(true);
+        scrollPane.addEventFilter(MouseEvent.DRAG_DETECTED, event -> {
+            if (event.getButton() != MouseButton.MIDDLE) {
+                event.consume();
+            }
         });
+
+
+        scrollPane.addEventFilter(MouseEvent.MOUSE_DRAGGED, event -> {
+            if ((event.isPrimaryButtonDown() || event.isSecondaryButtonDown()) && !isInsideScrollbar(event) || (event.isMiddleButtonDown() && isInsideScrollbar(event))) {
+                event.consume(); // Block left button drag panning
+            }
+        });
+
+
+        root = new BorderPane();
+        root.setCenter(scrollPane);
 
 
         piecesPanel = new VBox(10);
@@ -155,44 +182,19 @@ public class GameController {
         initializeGame();
     }
 
-    public static boolean isGridEqual(
-            Map<HexCoordinate, Deque<PieceWrapper>> mutableGrid,
-            PMap<HexCoordinate, PStack<PieceWrapper>> immutableGrid
-    ) {
-        if (mutableGrid.size() != immutableGrid.size()) {
-            System.out.println("SIZE");
-            return false;
-        }
+    private boolean isInsideScrollbar(MouseEvent event) {
+        // Get the viewport's bounds and the scrollbars' bounds
+        Set<Node> scrollBars = scrollPane.lookupAll(".scroll-bar");
 
-        for (Map.Entry<HexCoordinate, Deque<PieceWrapper>> entry : mutableGrid.entrySet()) {
-            HexCoordinate coord = entry.getKey();
-            Deque<PieceWrapper> deque = entry.getValue();
-            PStack<PieceWrapper> pstack = immutableGrid.get(coord);
-
-            if (pstack == null || deque.size() != pstack.size()) {
-                System.out.println(311);
-                return false;
-            }
-
-            // Compare from bottom to top — need to reverse the deque
-            List<PieceWrapper> dequeAsList = new ArrayList<>(deque);
-            // Collections.reverse(dequeAsList); // Now bottom-to-top like PStack
-
-            Iterator<PieceWrapper> dequeIt = dequeAsList.iterator();
-            Iterator<PieceWrapper> pstackIt = pstack.iterator();
-
-            while (dequeIt.hasNext() && pstackIt.hasNext()) {
-                if (!Objects.equals(dequeIt.next(), pstackIt.next())) {
-                    System.out.println(325);
-                    System.out.println(dequeAsList);
-                    System.out.println(pstack);
-                    System.exit(1);
-                    return false;
+        for (Node node : scrollBars) {
+            if (node instanceof ScrollBar) {
+                Bounds bounds = node.localToScene(node.getBoundsInLocal());
+                if (bounds.contains(event.getSceneX(), event.getSceneY())) {
+                    return true;
                 }
             }
         }
-
-        return true;
+        return false;
     }
 
     /**
@@ -200,6 +202,7 @@ public class GameController {
      */
     private void updateHexGrid() {
         gameBoardPane.getChildren().clear();
+
 
         double centerX = gameBoardPane.getWidth() / 2;
         double centerY = gameBoardPane.getHeight() / 2;
@@ -479,6 +482,10 @@ public class GameController {
      * Displays the initial grid by updating the hex grid.
      */
     private void displayStartingGrid() {
+        Platform.runLater(() -> {
+            scrollPane.setHvalue(0.5);
+            scrollPane.setVvalue(0.5);
+        });
         updateHexGrid();
     }
 
