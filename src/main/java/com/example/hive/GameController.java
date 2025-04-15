@@ -14,21 +14,26 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import org.pcollections.PMap;
+import org.pcollections.PStack;
 
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.util.*;
 import java.util.List;
+
+import static com.example.hive.model.PieceColor.*;
 
 public class GameController {
 
     private Pane gameBoardPane;
 
     private int HEX_SIZE = 25;
-    private Grid gameGrid = new Grid();
+    private GameModel gameModel;
     private Stage primaryStage;
     private ImageView selectedPiece = null;
-    private List<ImageView> currentDisplayedPlacements = null;
-    private boolean isWhite = false; // Indicates if the human player is the white pieces or the black.
+    private List<? extends MoveAction> currentDisplayedPlacements = null;
+    private PieceColor humanPiecesColor = null; // Indicates if the human player is the white pieces or the black.
     private int movesCount;
     private boolean isQueenBeePlaced;
     private VBox piecesPanel;
@@ -36,32 +41,34 @@ public class GameController {
     private ArrayList<ImageView> whitePlacementPieces = new ArrayList<>();
     private ArrayList<ImageView> blackPlacementPieces = new ArrayList<>();
 
+    private ArrayList<PieceWrapper> blackPanelPieces = new ArrayList<>(5);
+    private ArrayList<PieceWrapper> whitePanelPieces = new ArrayList<>(5);
+
     private volatile boolean moveMade;
     private boolean[] disableAllPiecesExceptOfQueenBee = new boolean[2];
     private boolean[] isQueenBeeForcedPlaced = {false, false};
-    private boolean currentTurn = true; // Current turn is white's.
+    private PieceColor currentTurn = WHITE; // Current turn is white's.
 
     private BorderPane root;
     private AIPlayer aiPlayer;
 
-    /**
-     * Constructor to initialize the GameController with the stage and whether the human player is white.
-     *
-     * @param stage  the main stage for the game
-     * @param isWhite boolean indicating if the human player is white
-     */
-    public GameController(Stage stage, boolean isWhite) {
+    private MoveAction markedMove = null;
+
+
+    public GameController(Stage stage, PieceColor humanPiecesColor) {
         primaryStage = stage;
-        this.isWhite = isWhite;
+        this.humanPiecesColor = humanPiecesColor;
         movesCount = 0;
         isQueenBeePlaced = false;
-        aiPlayer = new AIPlayer(gameGrid, !isWhite);
+        gameModel = new GameModel();
+        aiPlayer = new AIPlayer(gameModel, humanPiecesColor.getOpposite());
     }
 
     public GameController(Stage stage) {
         primaryStage = stage;
         movesCount = 0;
         isQueenBeePlaced = false;
+        gameModel = new GameModel();
     }
 
     /**
@@ -91,12 +98,24 @@ public class GameController {
         ImageView spiderBlackView = new ImageView(PieceImage.SPIDER_BLACK.getImage());
         ImageView grasshopperBlackView = new ImageView(PieceImage.GRASSHOPPER_BLACK.getImage());
         ImageView beetleBlackView = new ImageView(PieceImage.BEETLE_BLACK.getImage());
+        blackPanelPieces.add(new PieceWrapper(new Piece(PieceType.QUEEN_BEE, BLACK), queenBeeBlackView));
+        blackPanelPieces.add(new PieceWrapper(new Piece(PieceType.ANT, BLACK), antBlackView));
+        blackPanelPieces.add(new PieceWrapper(new Piece(PieceType.SPIDER, BLACK), spiderBlackView));
+        blackPanelPieces.add(new PieceWrapper(new Piece(PieceType.GRASSHOPPER, BLACK), grasshopperBlackView));
+        blackPanelPieces.add(new PieceWrapper(new Piece(PieceType.BEETLE, BLACK), beetleBlackView));
+
+
 
         ImageView queenBeeWhiteView = new ImageView(PieceImage.QUEEN_BEE_WHITE.getImage());
         ImageView antWhiteView = new ImageView(PieceImage.ANT_WHITE.getImage());
         ImageView spiderWhiteView = new ImageView(PieceImage.SPIDER_WHITE.getImage());
         ImageView grasshopperWhiteView = new ImageView(PieceImage.GRASSHOPPER_WHITE.getImage());
         ImageView beetleWhiteView = new ImageView(PieceImage.BEETLE_WHITE.getImage());
+        whitePanelPieces.add(new PieceWrapper(new Piece(PieceType.QUEEN_BEE, WHITE), queenBeeWhiteView));
+        whitePanelPieces.add(new PieceWrapper(new Piece(PieceType.ANT, WHITE), antWhiteView));
+        whitePanelPieces.add(new PieceWrapper(new Piece(PieceType.SPIDER, WHITE), spiderWhiteView));
+        whitePanelPieces.add(new PieceWrapper(new Piece(PieceType.GRASSHOPPER, WHITE), grasshopperWhiteView));
+        whitePanelPieces.add(new PieceWrapper(new Piece(PieceType.BEETLE, WHITE), beetleWhiteView));
 
         Collections.addAll(whitePlacementPieces, queenBeeWhiteView, antWhiteView, spiderWhiteView, grasshopperWhiteView, beetleWhiteView);
         Collections.addAll(blackPlacementPieces, queenBeeBlackView, antBlackView, spiderBlackView, grasshopperBlackView, beetleBlackView);
@@ -136,6 +155,46 @@ public class GameController {
         initializeGame();
     }
 
+    public static boolean isGridEqual(
+            Map<HexCoordinate, Deque<PieceWrapper>> mutableGrid,
+            PMap<HexCoordinate, PStack<PieceWrapper>> immutableGrid
+    ) {
+        if (mutableGrid.size() != immutableGrid.size()) {
+            System.out.println("SIZE");
+            return false;
+        }
+
+        for (Map.Entry<HexCoordinate, Deque<PieceWrapper>> entry : mutableGrid.entrySet()) {
+            HexCoordinate coord = entry.getKey();
+            Deque<PieceWrapper> deque = entry.getValue();
+            PStack<PieceWrapper> pstack = immutableGrid.get(coord);
+
+            if (pstack == null || deque.size() != pstack.size()) {
+                System.out.println(311);
+                return false;
+            }
+
+            // Compare from bottom to top — need to reverse the deque
+            List<PieceWrapper> dequeAsList = new ArrayList<>(deque);
+            // Collections.reverse(dequeAsList); // Now bottom-to-top like PStack
+
+            Iterator<PieceWrapper> dequeIt = dequeAsList.iterator();
+            Iterator<PieceWrapper> pstackIt = pstack.iterator();
+
+            while (dequeIt.hasNext() && pstackIt.hasNext()) {
+                if (!Objects.equals(dequeIt.next(), pstackIt.next())) {
+                    System.out.println(325);
+                    System.out.println(dequeAsList);
+                    System.out.println(pstack);
+                    System.exit(1);
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Updates the hex grid to properly position the pieces based on the grid.
      */
@@ -144,13 +203,15 @@ public class GameController {
 
         double centerX = gameBoardPane.getWidth() / 2;
         double centerY = gameBoardPane.getHeight() / 2;
-        // System.out.println("centerX: " + centerX + "\ncenterY: " + centerY);
 
-        Map<HexCoordinate, Deque<ImageView>> grid = gameGrid.getGrid();
-        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
+        // Map<HexCoordinate, Deque<PieceWrapper>> grid = gameModel.getGrid();
+        PMap<HexCoordinate, PStack<PieceWrapper>> immutableGrid = gameModel.getImmutableGrid();
+        // System.out.println(isGridEqual(grid, immutableGrid));
+
+        for (PMap.Entry<HexCoordinate, PStack<PieceWrapper>> entry : immutableGrid.entrySet()) {
             HexCoordinate hexCoordinate = entry.getKey();
-            ImageView pieceImageView = entry.getValue().peek();
-            // System.out.println("Layoutx: " + pieceImageView.getLayoutX() + "\nLayouty: " + pieceImageView.getLayoutY());
+            PieceWrapper pieceWrapper = entry.getValue().get(0);
+            ImageView pieceImageView = (pieceWrapper != null) ? pieceWrapper.getImageView() : new ImageView(PieceImage.BLANK_TILE.getImage());
 
             Point2D newPixelPosition = hex_to_pixel(hexCoordinate, centerX, centerY);
 
@@ -163,7 +224,6 @@ public class GameController {
 
         }
         gameBoardPane.requestLayout();
-
     }
 
     /**
@@ -171,25 +231,35 @@ public class GameController {
      */
     private void enablePlacedPieces() {
         List<PieceImage> pieceImages = new ArrayList<>();
-        if (gameGrid.canMovePieces()) {
-            if (currentTurn) {
-                pieceImages = PieceImage.getPiecesByColor(PieceColor.WHITE);
-            } else {
-                pieceImages = PieceImage.getPiecesByColor(PieceColor.BLACK);
+        if (gameModel.canMovePieces(currentTurn)) {
+            if (currentTurn == WHITE) {
+                if (aiPlayer == null || humanPiecesColor == currentTurn)
+                    pieceImages = PieceImage.getPiecesByColor(WHITE);
+            } else if (currentTurn == BLACK) {
+                if (aiPlayer == null || humanPiecesColor == currentTurn)
+                    pieceImages = PieceImage.getPiecesByColor(PieceColor.BLACK);
             }
         }
-        // System.out.println(pieceImages);
 
-        Map<HexCoordinate, Deque<ImageView>> grid = gameGrid.getGrid();
-        for (Map.Entry<HexCoordinate, Deque<ImageView>> entry : grid.entrySet()) {
-            ImageView pieceImageView = entry.getValue().peek();
+        // Map<HexCoordinate, Deque<PieceWrapper>> grid = gameModel.getGrid();
+        PMap<HexCoordinate, PStack<PieceWrapper>> immutableGrid = gameModel.getImmutableGrid();
+        for (PMap.Entry<HexCoordinate, PStack<PieceWrapper>> entry : immutableGrid.entrySet()) {
+            PieceWrapper pieceWrapper = entry.getValue().get(0);
+            assert pieceWrapper != null;
+            ImageView pieceImageView = pieceWrapper.getImageView();
             if (pieceImageView.getImage() != PieceImage.BLANK_TILE.getImage()) {
                 if (pieceImages.contains(getPieceTypeFromImageView(pieceImageView))) {
                     pieceImageView.setOnMouseClicked(event -> placedPieceMouseClickedEvent(pieceImageView));
                     pieceImageView.setOnMouseEntered(event -> placedPieceMouseEnteredEvent(pieceImageView));
                     pieceImageView.setOnMouseExited(event -> placedPieceMouseExitedEvent(pieceImageView));
                 } else {
-                    pieceImageView.setStyle(null);
+                    if (!markedMove.isPlacement()) {
+                        if (((MovementAction) markedMove).getFrom() != entry.getKey() && ((MovementAction) markedMove).getTo() != entry.getKey())
+                            pieceImageView.setStyle(null);
+                    } else {
+                        if (((PlacementAction) markedMove).getDestination() != entry.getKey())
+                            pieceImageView.setStyle(null);
+                    }
                     pieceImageView.setOnMouseClicked(null);
                     pieceImageView.setOnMouseEntered(null);
                     pieceImageView.setOnMouseExited(null);
@@ -215,14 +285,15 @@ public class GameController {
     private void gameLoop() {
         boolean stopping = false;
         while (!stopping) {
-            currentTurn = gameGrid.getTurn();
+            currentTurn = gameModel.getTurn();
+            System.out.println("getTurn: " + currentTurn);
             enablePlacedPieces();
             moveMade = false;
-            if (currentTurn) {
-                if (aiPlayer == null || isWhite) {
+            if (currentTurn == WHITE) {
+                if (aiPlayer == null || humanPiecesColor == WHITE) {
                     // Ensure UI updates are run on the JavaFX Application Thread.
                     Platform.runLater(() -> {
-                        if (disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0])
+                        if (disableAllPiecesExceptOfQueenBee[currentTurn == WHITE ? 1 : 0])
                             disableAllPiecesExceptOfQueenBee();
                         else
                             makeSelectablePieces(whitePlacementPieces);
@@ -231,9 +302,9 @@ public class GameController {
                 }
             }
             else {
-                if (aiPlayer == null || !isWhite) {
+                if (aiPlayer == null || humanPiecesColor == BLACK) {
                     Platform.runLater(() -> {
-                        if (disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0])
+                        if (disableAllPiecesExceptOfQueenBee[currentTurn == WHITE ? 1 : 0])
                             disableAllPiecesExceptOfQueenBee();
                         else
                             makeSelectablePieces(blackPlacementPieces);
@@ -242,48 +313,26 @@ public class GameController {
                 }
             }
 
-            if (aiPlayer != null && currentTurn != isWhite) {
-                Thread aiMove = new Thread(() -> {
-                    ImageView piece = aiPlayer.makeMove();
-                    moveMade = true;
-                    if (piece != null) {
-                        Iterator<Node> iterator = piecesPanel.getChildren().iterator();
-                        boolean flag = false;
-                        while (iterator.hasNext() && !flag) {
-                            ImageView temp = (ImageView) iterator.next();
-                            if (temp.getImage() == piece.getImage()) {
-                                piece = temp;
-                                flag = true;
-                            }
-                        }
-                        System.out.println(piece.getImage());
-                        int pieceCount = gameGrid.getPieceCount(piece);
-                        System.out.println("pieceCount: " + pieceCount);
-                        if (pieceCount == 0) {
-                            ColorAdjust grayScale = new ColorAdjust();
-                            grayScale.setSaturation(-1);
-                            piece.setEffect(grayScale);
-                            piece.setOnMouseEntered(null);
-                            piece.setOnMouseExited(null);
-                            piece.setOnMouseClicked(null);
-                            disabledPieces.add(piece);
-                        }
-                    }
-                });
-                aiMove.setDaemon(true);
+            if (aiPlayer != null && currentTurn != humanPiecesColor) {
+                unmarkMove();
+                makeUnSelectablePieces(blackPlacementPieces);
+                makeUnSelectablePieces(whitePlacementPieces);
+                Thread aiMove = getAiMove();
                 aiMove.start();
             }
 
-            // Wait until the move is made
+            // Wait until the move is made.
             while (!moveMade) {
                 try {
-                    Thread.sleep(100); // Prevent CPU overuse
+                    Thread.sleep(100); // Prevent CPU overuse.
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    return; // Exit if interrupted
+                    return; // Exit if interrupted.
                 }
             }
 
+            // unmarkMove();
+            markMove();
             Platform.runLater(this::updateHexGrid);
             stopping = checkWin();
             // gameGrid.advanceTurn();
@@ -292,25 +341,83 @@ public class GameController {
 
     }
 
+    private Thread getAiMove() {
+        Thread aiMove = new Thread(() -> {
+            Pair<? extends MoveAction, PieceWrapper> pair = aiPlayer.makeMove();
+            PieceWrapper piece = pair.getValue();
+            markedMove = pair.getKey();
+            moveMade = true;
+            if (piece != null) {
+                ImageView pieceImageView = getPieceImageView(piece);
+                int pieceCount = gameModel.getRemainingPiecesToPlace(piece.getPiece().getColor(), piece.getPiece().getType());
+                // System.out.println("pieceCount: " + pieceCount);
+                if (pieceCount == 0 && pieceImageView != null) {
+                    ColorAdjust grayScale = new ColorAdjust();
+                    grayScale.setSaturation(-1);
+                    pieceImageView.setEffect(grayScale);
+                    pieceImageView.setOnMouseEntered(null);
+                    pieceImageView.setOnMouseExited(null);
+                    pieceImageView.setOnMouseClicked(null);
+                    disabledPieces.add(pieceImageView);
+                    try {
+                        Thread.sleep(10000); // Prevent CPU overuse
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        System.exit(-1);
+                    }
+                }
+            }
+        });
+        aiMove.setDaemon(true);
+        return aiMove;
+    }
+
+    private ImageView getPieceImageView(PieceWrapper piece) {
+        ImageView pieceImageView = null;
+        if (currentTurn == WHITE) {
+            for (PieceWrapper pieceWrapper : whitePanelPieces) {
+                if (pieceWrapper.getPiece().getType() == piece.getPiece().getType())
+                    pieceImageView = pieceWrapper.getImageView();
+            }
+        }
+        else if (currentTurn == BLACK) {
+            for (PieceWrapper pieceWrapper : blackPanelPieces) {
+                if (pieceWrapper.getPiece().getType() == piece.getPiece().getType())
+                    pieceImageView = pieceWrapper.getImageView();
+            }
+        }
+        return pieceImageView;
+    }
+
     private boolean checkWin() {
         boolean stopping;
-        Map<Boolean, Boolean> winner = new HashMap<>();
-        winner = gameGrid.checkWin();
-        stopping = winner.get(true) || winner.get(false);
-        System.out.println("STOPPING: " + stopping);
+        Map<PieceColor, Boolean> winner;
+        winner = gameModel.checkWin();
+        stopping = winner.get(WHITE) || winner.get(BLACK);
+        // System.out.println("STOPPING: " + stopping);
         if (stopping) {
             String message;
-            if (winner.get(true)) {
-                if (winner.get(false))
+            if (winner.get(WHITE)) {
+                if (winner.get(BLACK)) {
                     message = "It is a stalemate!";
-                else
+                    HexCoordinate whiteQB = gameModel.getQueenCoordinate(WHITE);
+                    HexCoordinate blackQB = gameModel.getQueenCoordinate(BLACK);
+                    markWinningSurrounding(whiteQB.getNeighbors());
+                    markWinningSurrounding(blackQB.getNeighbors());
+                } else {
                     message = "White Won!";
+                    HexCoordinate blackQB = gameModel.getQueenCoordinate(BLACK);
+                    // System.out.println("BLACK QB Coordinate: " + blackQB);
+                    markWinningSurrounding(blackQB.getNeighbors());
+                }
             } else {
                 message = "Black Won!";
+                HexCoordinate whiteQB = gameModel.getQueenCoordinate(WHITE);
+                markWinningSurrounding(whiteQB.getNeighbors());
             }
-            System.out.println(message);
+            // System.out.println(message);
             try {
-                Thread.sleep(1000);
+                Thread.sleep(5000);
                 loadWinScreen(message);
             } catch (IOException e) {
                 System.out.println("[IOException] when loading Win Screen.");
@@ -319,6 +426,17 @@ public class GameController {
             }
         }
         return stopping;
+    }
+
+    private void markWinningSurrounding(ArrayList<HexCoordinate> winningSurroundingCoords) {
+        unmarkMove();
+        // Map<HexCoordinate, Deque<PieceWrapper>> gameGrid = gameModel.getGrid();
+        PMap<HexCoordinate, PStack<PieceWrapper>> gameGrid = gameModel.getImmutableGrid();
+        for (HexCoordinate coordinate : winningSurroundingCoords) {
+            // System.out.println("Surrounding Coordinate: "+ coordinate);
+            ImageView imageView = gameGrid.get(coordinate).get(0).getImageView();
+            Platform.runLater(() -> {imageView.setStyle("-fx-effect: innershadow(three-pass-box, red, 3, 1.0, 0, 0);");});
+        }
     }
 
     private void loadWinScreen(String winner) throws IOException {
@@ -365,18 +483,6 @@ public class GameController {
     }
 
     /**
-     * Helper method to create an ImageView for a piece.
-     *
-     * @param image the Image object to display
-     * @return the ImageView with preset dimensions
-     */
-    private ImageView createPieceImageView(Image image, boolean isSelectable) {
-        ImageView imageView = new ImageView(image);
-
-        return imageView;
-    }
-
-    /**
      * Makes the pieces selectable by adding event handlers for mouse clicks and hover events.
      *
      * @param imagesViews the list of ImageView pieces to make selectable
@@ -415,18 +521,20 @@ public class GameController {
      * @param imageView The ImageView representing the clicked piece.
      */
     private void placedPieceMouseClickedEvent(ImageView imageView) {
+        unmarkMove();
         if (selectedPiece != null && imageView == selectedPiece) {
-            stopDisplayValidPlacements(currentDisplayedPlacements);
+            stopDisplayValidMoves(currentDisplayedPlacements);
             selectedPiece.setStyle("");
             selectedPiece = null;
         } else {
             if (selectedPiece != null) {
                 selectedPiece.setStyle("");
-                stopDisplayValidPlacements(currentDisplayedPlacements);
+                stopDisplayValidMoves(currentDisplayedPlacements);
             }
             imageView.setStyle("-fx-effect: innershadow(gaussian, green, 20, 0.5, 0, 0);");
             selectedPiece = imageView;
-            List<ImageView> validMovements = gameGrid.getValidMovements(imageView);
+            System.out.println(gameModel.getHexCoordinateByPieceWrapperImage(imageView));
+            List<MovementAction> validMovements = gameModel.getValidMoves(gameModel.getImmutableGrid(), gameModel.getHexCoordinateByPieceWrapperImage(imageView));
             displayValidMovements(validMovements);
             currentDisplayedPlacements = validMovements;
         }
@@ -465,18 +573,19 @@ public class GameController {
      * @param imageView The ImageView representing the clicked piece in the panel.
      */
     private void panelPieceMouseClickedEvent(ImageView imageView) {
+        unmarkMove();
         if (selectedPiece != null && imageView == selectedPiece) {
-            stopDisplayValidPlacements(currentDisplayedPlacements);
+            stopDisplayValidMoves(currentDisplayedPlacements);
             selectedPiece.setStyle("");
             selectedPiece = null;
         } else {
             if (selectedPiece != null) {
                 selectedPiece.setStyle("");
-                stopDisplayValidPlacements(currentDisplayedPlacements);
+                stopDisplayValidMoves(currentDisplayedPlacements);
             }
-            imageView.setStyle("-fx-effect: dropshadow(gaussian, green, 10, 0.5, 0, 0);");
+            imageView.setStyle("-fx-effect: innershadow(three-pass-box, green, 3, 1.0, 0, 0);");
             selectedPiece = imageView;
-            List<ImageView> validPlacements = gameGrid.getValidPlacements(gameGrid.getTurn());
+            List<PlacementAction> validPlacements = gameModel.getValidPlacements(gameModel.getTurn());
             displayValidPlacements(validPlacements);
             currentDisplayedPlacements = validPlacements;
         }
@@ -491,7 +600,7 @@ public class GameController {
      */
     private void panelPieceMouseEnteredEvent(ImageView imageView) {
         if (selectedPiece != imageView) {
-            imageView.setStyle("-fx-effect: dropshadow(gaussian, yellow, 10, 0.5, 0, 0);");
+            imageView.setStyle("-fx-effect: innershadow(three-pass-box, yellow, 3, 1.0, 0, 0);");
         }
     }
 
@@ -529,8 +638,15 @@ public class GameController {
      *
      * @param placements The list of ImageViews representing the valid placements to stop displaying.
      */
-    private void stopDisplayValidPlacements(List<ImageView> placements) {
-        for (ImageView pieceImageView : placements) {
+    private void stopDisplayValidMoves(List<? extends MoveAction> placements) {
+        // Map<HexCoordinate, Deque<PieceWrapper>> gridState = gameModel.getGrid();
+        PMap<HexCoordinate, PStack<PieceWrapper>> gridState = gameModel.getImmutableGrid();
+        for (MoveAction moveAction : placements) {
+            ImageView pieceImageView;
+            if (moveAction.isPlacement())
+                pieceImageView = gridState.get(((PlacementAction) moveAction).getDestination()).get(0).getImageView();
+            else
+                pieceImageView = gridState.get(((MovementAction) moveAction).getTo()).get(0).getImageView();
             pieceImageView.setStyle(null);
             pieceImageView.setOnMouseClicked(null);
             pieceImageView.setOnMouseEntered(null);
@@ -539,27 +655,39 @@ public class GameController {
         }
     }
 
+    private PieceWrapper getPieceWrapperByImageView(ImageView imageView) {
+        if (currentTurn == WHITE) {
+            for (PieceWrapper pieceWrapper : whitePanelPieces) {
+                if (pieceWrapper.getImageView().equals(imageView))
+                    return pieceWrapper;
+            }
+        } else if (currentTurn == BLACK) {
+            for (PieceWrapper pieceWrapper : blackPanelPieces) {
+                if (pieceWrapper.getImageView().equals(imageView))
+                    return pieceWrapper;
+            }
+        }
+        return null;
+    }
+
     /**
      * Displays valid placements by adding a yellow shadow effect and setting up click and hover event handlers.
      *
      * @param placements The list of ImageViews representing valid placements for the piece.
      */
-    private void displayValidPlacements(List<ImageView> placements) {
-        for (ImageView pieceImageView : placements) {
-            /*
-            HexCoordinate hexCoord = gameGrid.getHexCoord(pieceImageView);
-            Point2D point2D = hex_to_pixel(hexCoord);
-            pieceImageView.setLayoutX(point2D.getX());
-            pieceImageView.setLayoutY(point2D.getY());
-             */
+    private void displayValidPlacements(List<PlacementAction> placements) {
+        for (PlacementAction placement : placements) {
+            ImageView pieceImageView = gameModel.getImmutableGrid().get(placement.getDestination()).get(0).getImageView();
 
-            pieceImageView.setStyle("-fx-effect: dropshadow(gaussian, yellow, 10, 0.5, 0, 0);");
+            pieceImageView.setStyle("-fx-effect: innershadow(three-pass-box, yellow, 3, 1.0, 0, 0);");
 
             pieceImageView.setOnMouseClicked(event -> {
                 if (selectedPiece != null) {
-
-                    int response = gameGrid.placePiece(currentTurn, selectedPiece, pieceImageView);
-                    int pieceCount = gameGrid.getPieceCount(selectedPiece);
+                    PieceWrapper pieceWrapper = getPieceWrapperByImageView(selectedPiece);
+                    int response = gameModel.placePiece(currentTurn, pieceWrapper, placement).getValue();
+                    markedMove = placement;
+                    System.out.println("displayValidPlacements: " + gameModel.getTurn());
+                    int pieceCount = gameModel.getRemainingPiecesToPlace(currentTurn, getPieceWrapperByImageView(selectedPiece).getPiece().getType());
                     if (pieceCount == 0) {
                         ColorAdjust grayScale = new ColorAdjust();
                         grayScale.setSaturation(-1);
@@ -568,11 +696,12 @@ public class GameController {
                         selectedPiece.setOnMouseExited(null);
                         selectedPiece.setOnMouseClicked(null);
                         disabledPieces.add(selectedPiece);
+
                     }
 
                     selectedPiece.setStyle(null);
                     selectedPiece = null;
-                    stopDisplayValidPlacements(placements);
+                    stopDisplayValidMoves(placements);
                     pieceImageView.setStyle(null);
                     pieceImageView.setOnMouseExited(null);
                     pieceImageView.setOnMouseClicked(null);
@@ -581,23 +710,23 @@ public class GameController {
                     updateHexGrid();
                     moveMade = true;
 
-                    if (isQueenBeeForcedPlaced[currentTurn ? 1 : 0]) {
+                    if (isQueenBeeForcedPlaced[currentTurn == WHITE ? 1 : 0]) {
                         enableAllPiecesExceptOfQueenBee();
                     }
 
                     if (response == 1) {
-                        disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0] = true;
+                        disableAllPiecesExceptOfQueenBee[currentTurn == WHITE ? 1 : 0] = true;
                         // disableAllPiecesExceptOfQueenBee();
                     }
                 }
             });
 
             pieceImageView.setOnMouseEntered(event -> {
-                pieceImageView.setStyle("-fx-effect: dropshadow(gaussian, green, 10, 0.5, 0, 0);");
+                pieceImageView.setStyle("-fx-effect: innershadow(three-pass-box, green, 3, 1.0, 0, 0);");
 
             });
             pieceImageView.setOnMouseExited(event -> {
-                pieceImageView.setStyle("-fx-effect: dropshadow(gaussian, yellow, 10, 0.5, 0, 0);");
+                pieceImageView.setStyle("-fx-effect: innershadow(three-pass-box, yellow, 3, 1.0, 1.0, 0);");
             });
 
         }
@@ -610,31 +739,27 @@ public class GameController {
      *
      * @param movements The list of ImageViews representing valid movements for the selected piece.
      */
-    private void displayValidMovements(List<ImageView> movements) {
-        for (ImageView pieceImageView : movements) {
+    private void displayValidMovements(List<MovementAction> movements) {
+        for (MovementAction movementAction : movements) {
+            ImageView pieceImageView = gameModel.getImmutableGrid().get(movementAction.getTo()).get(0).getImageView();
             pieceImageView.setStyle("-fx-effect: innershadow(gaussian, blue, 10, 0.5, 0, 0);");
 
             pieceImageView.setOnMouseClicked(event -> {
                 if (selectedPiece != null) {
+                    gameModel.movePiece(movementAction);
+                    markedMove = movementAction;
 
-                    gameGrid.movePiece(selectedPiece, pieceImageView);
                     updateHexGrid();
 
                     selectedPiece.setStyle(null);
                     selectedPiece = null;
-                    stopDisplayValidPlacements(movements);
+                    stopDisplayValidMoves(movements);
                     pieceImageView.setStyle(null);
                     pieceImageView.setOnMouseExited(null);
                     pieceImageView.setOnMouseClicked(null);
                     pieceImageView.setOnMouseEntered(null);
-                    
-                    moveMade = true;
 
-                    /*
-                    if (response == -1) {
-                        // TODO
-                    }
-                     */
+                    moveMade = true;
                 }
             });
 
@@ -648,6 +773,35 @@ public class GameController {
 
         }
         updateHexGrid();
+    }
+
+    private void markMove() {
+        if (markedMove != null) {
+            if (!markedMove.isPlacement()) {
+                ImageView fromImageView = gameModel.getPieceWrapperByHexCoordinate(((MovementAction) markedMove).getFrom()).getImageView();
+                ImageView toImageView = gameModel.getPieceWrapperByHexCoordinate(((MovementAction) markedMove).getTo()).getImageView();
+                fromImageView.setStyle("-fx-effect: innershadow(three-pass-box, #0EE600, 3, 1.0, 0, 0);");
+                toImageView.setStyle("-fx-effect: innershadow(three-pass-box, #0EE600, 3, 1.0, 0, 0);");
+            } else {
+                ImageView destinationImageView = gameModel.getPieceWrapperByHexCoordinate(((PlacementAction) markedMove).getDestination()).getImageView();
+                destinationImageView.setStyle("-fx-effect: innershadow(three-pass-box, #0EE600, 3, 1.0, 0, 0);");
+            }
+        }
+    }
+
+    private void unmarkMove() {
+        if (markedMove != null) {
+            if (!markedMove.isPlacement()) {
+                ImageView fromImageView = gameModel.getPieceWrapperByHexCoordinate(((MovementAction) markedMove).getFrom()).getImageView();
+                ImageView toImageView = gameModel.getPieceWrapperByHexCoordinate(((MovementAction) markedMove).getTo()).getImageView();
+                fromImageView.setStyle("");
+                toImageView.setStyle("");
+            } else {
+                ImageView destinationImageView = gameModel.getPieceWrapperByHexCoordinate(((PlacementAction) markedMove).getDestination()).getImageView();
+                destinationImageView.setStyle("");
+            }
+            markedMove = null;
+        }
     }
 
     /**
@@ -666,13 +820,13 @@ public class GameController {
 
             }
             if (castWorked && !disabledPieces.contains((ImageView) node)) {
-                if (currentTurn) {
+                if (currentTurn == WHITE) {
                     if (pieceType != null && pieceType != PieceImage.QUEEN_BEE_WHITE) {
                         node.setOnMouseClicked(event -> panelPieceMouseClickedEvent((ImageView) node));
                         node.setOnMouseEntered(event -> panelPieceMouseEnteredEvent((ImageView) node));
                         node.setOnMouseExited(event -> panelPieceMouseExitedEvent((ImageView) node));
                     }
-                } else {
+                } else if (currentTurn == BLACK) {
                     if (pieceType != null && pieceType != PieceImage.QUEEN_BEE_BLACK) {
                         node.setOnMouseClicked(event -> panelPieceMouseClickedEvent((ImageView) node));
                         node.setOnMouseEntered(event -> panelPieceMouseEnteredEvent((ImageView) node));
@@ -685,7 +839,10 @@ public class GameController {
 
     /**
      * Disables all pieces except the Queen Bee for the current turn.
-     * This prevents the player from interacting with pieces that are not the Queen Bee during their turn.
+     * <p>
+     * Time Complexity: O(n), where n is the number of nodes in piecesPanel.
+     * Space Complexity: O(1)
+     * </p>
      */
     private void disableAllPiecesExceptOfQueenBee() {
         for (Node node : piecesPanel.getChildren()) {
@@ -699,7 +856,7 @@ public class GameController {
 
             }
             if (castWorked) {
-                if (currentTurn) {
+                if (currentTurn == WHITE) {
                     if (pieceType != null && pieceType != PieceImage.QUEEN_BEE_WHITE) {
                         node.setOnMouseClicked(null);
                         node.setOnMouseEntered(null);
@@ -709,7 +866,7 @@ public class GameController {
                         node.setOnMouseEntered(event -> panelPieceMouseEnteredEvent((ImageView) node));
                         node.setOnMouseExited(event -> panelPieceMouseExitedEvent((ImageView) node));
                     }
-                } else {
+                } else if (currentTurn == BLACK) {
                     if (pieceType != null && pieceType != PieceImage.QUEEN_BEE_BLACK) {
                         node.setOnMouseClicked(null);
                         node.setOnMouseEntered(null);
@@ -723,7 +880,7 @@ public class GameController {
                 }
             }
         }
-        isQueenBeeForcedPlaced[currentTurn ? 1 : 0] = true;
-        disableAllPiecesExceptOfQueenBee[currentTurn ? 1 : 0] = false;
+        isQueenBeeForcedPlaced[currentTurn == WHITE ? 1 : 0] = true;
+        disableAllPiecesExceptOfQueenBee[currentTurn == WHITE ? 1 : 0] = false;
     }
 }

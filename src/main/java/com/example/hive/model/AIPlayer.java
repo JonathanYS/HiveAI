@@ -1,5 +1,8 @@
 package com.example.hive.model;
 
+import org.pcollections.PMap;
+import org.pcollections.PStack;
+
 import java.util.*;
 
 import static com.example.hive.model.PieceType.*;
@@ -35,10 +38,10 @@ public class AIPlayer {
         if (move != null) {
             // System.out.println("++++++++++++++++++++++++++++++++++++++\n" + move.getKey().isPlacement() + "\n++++++++++++++++++++++++++++++++++++++");
             if (!move.getKey().isPlacement()) {
-                gameModel.movePiece((MovementAction) move.getKey(), false);
+                gameModel.movePiece((MovementAction) move.getKey());
             }
             else {
-                int response = gameModel.placePiece(myColor, move.getValue(), (PlacementAction) move.getKey(), false);
+                int response = gameModel.placePiece(myColor, move.getValue(), (PlacementAction) move.getKey()).getValue();
                 placementsCount++;
                 if (response == 1)
                     mustPlaceQB = true;
@@ -227,13 +230,8 @@ public class AIPlayer {
 
     // TODO: Handle cases of stalemate in a better way than just returning the stalemate move if no winning move is found.
     private MovementAction checkImmediateWin(List<MovementAction> legalMoves) {
-        PriorityQueue<Pair<Integer, MovementAction>> bestMoves = getBestSimpleMoves(gameModel.getGrid(), legalMoves, myColor);
-        // System.out.println(bestMoves);
-
-        while (bestMoves != null && bestMoves.peek() != null && isQueenMove(bestMoves.peek().getValue())) {
-            // System.out.println("Skipping queen move: " + bestMoves.peek());
-            bestMoves.poll();
-        }
+        PriorityQueue<Pair<Integer, MovementAction>> bestMoves = getBestSimpleMoves(gameModel.getImmutableGrid(), legalMoves, myColor);
+        System.out.println("Best Moves: " + bestMoves);
 
         if (bestMoves != null && bestMoves.peek() != null) {
             // System.out.println("bestMoves.peek(): " + bestMoves.peek());
@@ -249,34 +247,34 @@ public class AIPlayer {
      */
     private boolean isQueenMove(MovementAction move) {
         HexCoordinate source = move.getFrom();
-        PieceWrapper sourcePiece = gameModel.getGrid().get(source).peek();
+        PieceWrapper sourcePiece = gameModel.getImmutableGrid().get(source).get(0);
         return sourcePiece.getPiece().getType() == QUEEN_BEE;
     }
 
-    private PriorityQueue<Pair<Integer, MovementAction>> getBestSimpleMoves(Map<HexCoordinate, Deque<PieceWrapper>> gridCopy, List<MovementAction> legalMoves, PieceColor color) {
+    private PriorityQueue<Pair<Integer, MovementAction>> getBestSimpleMoves(PMap<HexCoordinate, PStack<PieceWrapper>> gridCopy, List<MovementAction> legalMoves, PieceColor color) {
         PriorityQueue<Pair<Integer, MovementAction>> bestMoves = new PriorityQueue<>(Comparator.comparing(Pair<Integer, MovementAction>::getKey).reversed());
-        Map<HexCoordinate, Deque<PieceWrapper>> simulatedGridState;
+        PMap<HexCoordinate, PStack<PieceWrapper>> simulatedGridState;
         HexCoordinate opponentQueenCoord = gameModel.getQueenCoordinate(color.getOpposite());
         if (opponentQueenCoord == null) { // Possible in the first 8 moves into the game.
             // System.out.println("Nah");
             return null;
         }
-        int numQueenNeighborsBeforeMove = gameModel.countNeighbours(gameModel.getGrid(), opponentQueenCoord);
+        int numQueenNeighborsBeforeMove = gameModel.countNeighbours(gameModel.getImmutableGrid(), opponentQueenCoord);
 
         // System.out.println("NUM QUEEN NEIGHBORS BEFORE: " + numQueenNeighborsBeforeMove);
         for (MovementAction move : legalMoves) {
-            // System.out.println("OK");
-            simulatedGridState = gameModel.getGrid(gridCopy);
-            simulatedGridState = gameModel.movePiece(simulatedGridState, move, true);
-            if (gameModel.checkWin(simulatedGridState).get(color) && gameModel.checkWin(simulatedGridState).get(color.getOpposite())) {
+            simulatedGridState = gameModel.simulateMovePiece(gridCopy, move);
+            // System.out.print("OK: ");
+            // System.out.println(gameModel.checkWin(simulatedGridState, myColor).get(color));
+            if (gameModel.checkWin(simulatedGridState, myColor).get(color) && gameModel.checkWin(simulatedGridState, myColor).get(color.getOpposite())) {
                 Pair<Integer, MovementAction> pair = new Pair<>(5, move);
                 bestMoves.add(pair);
             }
-            else if (gameModel.checkWin(simulatedGridState).get(color) && !gameModel.checkWin(simulatedGridState).get(color.getOpposite())) {
+            else if (gameModel.checkWin(simulatedGridState, myColor).get(color) && !gameModel.checkWin(simulatedGridState, myColor).get(color.getOpposite())) {
                 Pair<Integer, MovementAction> pair = new Pair<>(10, move);
                 bestMoves.add(pair);
             }
-            else if (gameModel.countNeighbours(simulatedGridState, opponentQueenCoord) > numQueenNeighborsBeforeMove && !gameModel.checkWin(simulatedGridState).get(color.getOpposite())) {
+            else if (gameModel.countNeighbours(simulatedGridState, opponentQueenCoord) > numQueenNeighborsBeforeMove && !gameModel.checkWin(simulatedGridState, myColor).get(color.getOpposite())) {
                 Pair<Integer, MovementAction> pair = new Pair<>(1, move);
                 bestMoves.add(pair);
             }
@@ -292,6 +290,47 @@ public class AIPlayer {
         return list;
     }
 
+    public static boolean isGridEqual(
+            Map<HexCoordinate, Deque<PieceWrapper>> mutableGrid,
+            PMap<HexCoordinate, PStack<PieceWrapper>> immutableGrid
+    ) {
+        if (mutableGrid.size() != immutableGrid.size()) {
+            System.out.println("SIZE");
+            return false;
+        }
+
+        for (Map.Entry<HexCoordinate, Deque<PieceWrapper>> entry : mutableGrid.entrySet()) {
+            HexCoordinate coord = entry.getKey();
+            Deque<PieceWrapper> deque = entry.getValue();
+            PStack<PieceWrapper> pstack = immutableGrid.get(coord);
+
+            if (pstack == null || deque.size() != pstack.size()) {
+                System.out.println(311);
+                return false;
+            }
+
+            // Compare from bottom to top — need to reverse the deque
+            List<PieceWrapper> dequeAsList = new ArrayList<>(deque);
+            // Collections.reverse(dequeAsList); // Now bottom-to-top like PStack
+
+            Iterator<PieceWrapper> dequeIt = dequeAsList.iterator();
+            Iterator<PieceWrapper> pstackIt = pstack.iterator();
+
+            while (dequeIt.hasNext() && pstackIt.hasNext()) {
+                if (!Objects.equals(dequeIt.next(), pstackIt.next())) {
+                    System.out.println(325);
+                    System.out.println(dequeAsList);
+                    System.out.println(pstack);
+                    System.exit(1);
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+
 
     private MovementAction checkBlockThreat(List<MovementAction> legalMoves) {
         HexCoordinate myQueenCoord = gameModel.getQueenCoordinate(myColor);
@@ -299,7 +338,7 @@ public class AIPlayer {
         if (myQueenCoord == null || opponentQueenCoord == null) {return null;}
 
         // Check how many neighbors our queen has.
-        int queenNeighbors = gameModel.countNeighbours(gameModel.getGrid(), myQueenCoord);
+        int queenNeighbors = gameModel.countNeighbours(gameModel.getImmutableGrid(), myQueenCoord);
         // Define a threshold under which the queen is considered safe.
         //int threatThreshold = 3;
         //if (queenNeighbors < threatThreshold) {
@@ -310,26 +349,32 @@ public class AIPlayer {
         // Get possible moves by opponent to surround our queen.
         List<MovementAction> legalOpponentMoves = gameModel.getLegalMoves(myColor.getOpposite());
         List<MovementAction> newLegalOpponentMoves;
-        PriorityQueue<Pair<Integer, MovementAction>> bestOpponentMovesPQ = getBestSimpleMoves(gameModel.getGrid(), legalOpponentMoves, myColor.getOpposite());
+        List<MovementAction> newLegalOpponentMovesMutable;
+        PriorityQueue<Pair<Integer, MovementAction>> bestOpponentMovesPQ = getBestSimpleMoves(gameModel.getImmutableGrid(), legalOpponentMoves, myColor.getOpposite());
         PriorityQueue<Pair<Integer, MovementAction>> bestOpponentMovesPQAfterMove;
         if (bestOpponentMovesPQ == null) return null;
         List<MovementAction> bestOpponentMovesList = priorityQueueMovesToListMoves(bestOpponentMovesPQ);
 
-        Map<HexCoordinate, Deque<PieceWrapper>> simulatedGridState;
+        PMap<HexCoordinate, PStack<PieceWrapper>> simulatedGridState;
+        Map<HexCoordinate, Deque<PieceWrapper>> simulatedGridStateMutable;
 
         int bestBlockedCount = 0;
         MovementAction bestBlockingMove = null;
-        int numLegalOpponentMoves = gameModel.countTotalLegalMoves(gameModel.getGrid(), myColor.getOpposite());
+        int numLegalOpponentMoves = gameModel.countTotalLegalMoves(gameModel.getImmutableGrid(), myColor.getOpposite());
 
         for (MovementAction move : legalMoves) {
-            simulatedGridState = gameModel.getGrid();
-            simulatedGridState = gameModel.movePiece(simulatedGridState, move, true);
+            // System.out.println("IS GRID EQUAL: " + isGridEqual(gameModel.getGrid(), gameModel.getImmutableGrid()));
+            simulatedGridState = gameModel.simulateMovePiece(gameModel.getImmutableGrid(), move);
+            // simulatedGridStateMutable = gameModel.movePiece(gameModel.getGrid(), move, true);
+            // System.out.println("IS GRID EQUAL: " + isGridEqual(simulatedGridStateMutable, simulatedGridState));
             newLegalOpponentMoves = gameModel.getLegalMoves(simulatedGridState, myColor.getOpposite());
+            // newLegalOpponentMovesMutable = gameModel.getLegalMoves(simulatedGridStateMutable, myColor.getOpposite());
+            // System.out.println("ARE new legal opponent moves EQUAL: " +  new HashSet<>(newLegalOpponentMoves).equals(new HashSet<>(newLegalOpponentMovesMutable)));
             bestOpponentMovesPQAfterMove = getBestSimpleMoves(simulatedGridState, newLegalOpponentMoves, myColor.getOpposite());
 
             int blockedWinningMoves = 0;
             for (MovementAction bestOpponentMove : bestOpponentMovesList) {
-                if (!newLegalOpponentMoves.contains(bestOpponentMove)) {
+                if (!newLegalOpponentMoves.contains(bestOpponentMove) || bestOpponentMovesPQAfterMove.stream().anyMatch(entry -> entry.getValue().equals(bestOpponentMove) && entry.getKey() != 10)) {
                     // System.out.println("BLOCKING WINNING MOVE: " + isWinningMove(bestOpponentMove, bestOpponentMovesPQ));
                     if (isWinningMove(bestOpponentMove, bestOpponentMovesPQ) && (bestOpponentMovesPQAfterMove == null || bestOpponentMovesPQAfterMove.isEmpty() || bestOpponentMovesPQAfterMove.peek().getKey() != 10)) {
                         blockedWinningMoves++; // Track if it blocks a direct win.
@@ -374,26 +419,26 @@ public class AIPlayer {
 
     private Pair<? extends MoveAction, PieceWrapper> selectMoveByMobility(List<MovementAction> legalMoves, List<PlacementAction> legalPlacements) {
         // Map<HexCoordinate, Deque<PieceWrapper>> gridStateBeforeMove = gameModel.getGrid();
+        HexCoordinate myQueenCoord = gameModel.getQueenCoordinate(myColor);
         MoveAction bestMove = null;
         int bestScore = -2000;
 
         HexCoordinate opponentQBCoordinate = gameModel.getQueenCoordinate(myColor.getOpposite());
         // System.out.println("OPPONENTQB COORD: " + opponentQBCoordinate);
-        PieceWrapper opponentQBImageView = gameModel.getGrid().get(opponentQBCoordinate).peek();
-        int totalOpponentMovesBeforeMove = gameModel.countTotalLegalMoves(gameModel.getGrid(), myColor.getOpposite());
+        PieceWrapper opponentQBImageView = gameModel.getImmutableGrid().get(opponentQBCoordinate).get(0);
+        int totalOpponentMovesBeforeMove = gameModel.countTotalLegalMoves(gameModel.getImmutableGrid(), myColor.getOpposite());
 
-        Map<HexCoordinate, Deque<PieceWrapper>> simulatedGridState;
+        PMap<HexCoordinate, PStack<PieceWrapper>> simulatedGridState;
         int score;
         for (MovementAction move : legalMoves) {
-            simulatedGridState = gameModel.getGrid();
-            simulatedGridState = gameModel.movePiece(simulatedGridState, move, true);
+            simulatedGridState = gameModel.simulateMovePiece(gameModel.getImmutableGrid(), move);
             score = evaluateMobility(simulatedGridState, myColor);
             // System.out.println("SCORE: " + score);
             // Add a bias to moves so that if scores are similar, moves are preferred.
             // score += 5;
             if (aiPieceCount >= gameModel.getPlacedPiecesCount(myColor.getOpposite()))
                 score += 20;
-            if (opponentQBImageView != simulatedGridState.get(opponentQBCoordinate).peek()) {
+            if (opponentQBImageView != simulatedGridState.get(opponentQBCoordinate).get(0)) {
                 // Only way is that the move is of the beetle and the beetle got on top of the queen.
                 score += 50;
             }
@@ -402,7 +447,7 @@ public class AIPlayer {
             PriorityQueue<Pair<Integer, MovementAction>> bestOpponentMovesPQ = getBestSimpleMoves(simulatedGridState, newLegalOpponentMoves, myColor.getOpposite());
             boolean hasWinningKey = bestOpponentMovesPQ.stream().anyMatch(p -> p.getKey() == 10);
 
-            if (gameModel.countTotalLegalMoves(simulatedGridState, myColor.getOpposite()) <= totalOpponentMovesBeforeMove && !hasWinningKey) {
+            if (gameModel.countTotalLegalMoves(simulatedGridState, myColor.getOpposite()) <= totalOpponentMovesBeforeMove && !hasWinningKey && myQueenCoord.getNeighbors().stream().noneMatch(move.getTo().getNeighbors()::contains)) {
                 if (score > bestScore) {
                     bestMove = move;
                     bestScore = score;
@@ -421,10 +466,8 @@ public class AIPlayer {
                 if (entry.getValue() > 0) {
                     newPlacedPiece = new PieceWrapper(new Piece(entry.getKey(), myColor));
 
-                    simulatedGridState = gameModel.getGrid();
                     PlacementAction placementAction = new PlacementAction(placement.getDestination());
-                    pair = gameModel.placePiece(simulatedGridState, myColor, newPlacedPiece, placementAction, true);
-                    simulatedGridState = pair.getKey();
+                    simulatedGridState = gameModel.simulatePlacePiece(myColor, gameModel.getImmutableGrid(), newPlacedPiece, placementAction).getKey();
                     score = evaluateMobility(simulatedGridState, myColor);
                     // Subtract a bias from placements so that moves win if scores are close.
                     // System.out.println("AI Pieces count: " + aiPieceCount +"\nScore: " + score);
@@ -446,7 +489,7 @@ public class AIPlayer {
         return returnedPair;
     }
 
-    private int evaluateMobility(Map<HexCoordinate, Deque<PieceWrapper>> gridState, PieceColor color) {
+    private int evaluateMobility(PMap<HexCoordinate, PStack<PieceWrapper>> gridState, PieceColor color) {
         return gameModel.countTotalLegalMoves(gridState, color);
     }
 
@@ -469,8 +512,8 @@ public class AIPlayer {
         // Evaluate all moves.
         for (MovementAction move : legalMoves) {
             // simulate state after move.
-            Map<HexCoordinate, Deque<PieceWrapper>> simulatedState = gameModel.getGrid();
-            simulatedState = gameModel.movePiece(simulatedState, move, true);
+            PMap<HexCoordinate, PStack<PieceWrapper>> simulatedState = gameModel.getImmutableGrid();
+            simulatedState = gameModel.simulateMovePiece(simulatedState, move);
 
             int mobilityScore = evaluateMobility(simulatedState, myColor);
             int connectivityScore = evaluateConnectivity(simulatedState, myColor);
@@ -492,12 +535,10 @@ public class AIPlayer {
             for (Map.Entry<PieceType, Integer> entry : piecesCount.entrySet()) {
                 PieceWrapper pieceWrapper = new PieceWrapper(new Piece(entry.getKey(), myColor));
 
-                Map<HexCoordinate, Deque<PieceWrapper>> simulatedState = gameModel.getGrid();
+                PMap<HexCoordinate, PStack<PieceWrapper>> simulatedState;
                 // Simulate placement; assuming the placePiece method returns a pair of (simulatedState, response)
                 PlacementAction placementAction = new PlacementAction(placement.getDestination());
-                Pair<Map<HexCoordinate, Deque<PieceWrapper>>, Integer> placeResult = gameModel.placePiece(
-                        simulatedState, myColor, pieceWrapper, placementAction, true);
-                simulatedState = placeResult.getKey();
+                simulatedState = gameModel.simulatePlacePiece(myColor, gameModel.getImmutableGrid(), pieceWrapper, placementAction).getKey();
 
                 int mobilityScore = evaluateMobility(simulatedState, myColor);
                 int connectivityScore = evaluateConnectivity(simulatedState, myColor);
@@ -523,10 +564,10 @@ public class AIPlayer {
     /**
      * Evaluate connectivity by summing the number of adjacent friendly pieces for each friendly piece on the board.
      */
-    private int evaluateConnectivity(Map<HexCoordinate, Deque<PieceWrapper>> gridState, PieceColor color) {
+    private int evaluateConnectivity(PMap<HexCoordinate, PStack<PieceWrapper>> gridState, PieceColor color) {
         int connectivityScore = 0;
-        for (Map.Entry<HexCoordinate, Deque<PieceWrapper>> entry : gridState.entrySet()) {
-            PieceWrapper piece = entry.getValue().peek();
+        for (PMap.Entry<HexCoordinate, PStack<PieceWrapper>> entry : gridState.entrySet()) {
+            PieceWrapper piece = entry.getValue().get(0);
             if (piece != null && pieceBelongsTo(piece, color)) {
                 int neighbors = gameModel.countNeighbours(gridState, entry.getKey());
                 connectivityScore += neighbors;
@@ -535,7 +576,7 @@ public class AIPlayer {
         return connectivityScore;
     }
 
-    private int evaluateBoardState(Map<HexCoordinate, Deque<PieceWrapper>> gridState, PieceColor color) {
+    private int evaluateBoardState(PMap<HexCoordinate, PStack<PieceWrapper>> gridState, PieceColor color) {
         int mobilityScore = evaluateMobility(gridState, color);
         int connectivityScore = evaluateConnectivity(gridState, color);
         int boardControlScore = evaluateBoardControl(gridState, color);
@@ -557,12 +598,12 @@ public class AIPlayer {
         if (!shouldSurroundQueen()) {return null;}
 
         PriorityQueue<Pair<Integer, MovementAction>> bestMovesToSurround = new PriorityQueue<>(Comparator.comparing(Pair::getKey));
-        Map<HexCoordinate, Deque<PieceWrapper>> gridStateBeforeMove = gameModel.getGrid();
+        PMap<HexCoordinate, PStack<PieceWrapper>> gridStateBeforeMove = gameModel.getImmutableGrid();
         PriorityQueue<Pair<Integer, MovementAction>> bestMoves = getBestSimpleMoves(gridStateBeforeMove, legalMoves, myColor);
         // System.out.println("Best moves in surrounding stage: " + bestMoves);
         int totalOpponentMovesBeforeMove =  gameModel.countTotalLegalMoves(gridStateBeforeMove, myColor.getOpposite());
         int totalOpponentMovesAfterMove;
-        Map<HexCoordinate, Deque<PieceWrapper>> simulatedGridState;
+        PMap<HexCoordinate, PStack<PieceWrapper>> simulatedGridState;
         MovementAction tempMove, bestMove = null;
         PlacementAction bestPlacement = null;
         PieceWrapper pieceToPlace = null;
@@ -572,16 +613,15 @@ public class AIPlayer {
         while (bestMoves != null && !bestMoves.isEmpty()) {
             // System.out.println("Skipping queen move: " + bestMoves.peek());
             tempMove = bestMoves.poll().getValue();
-            simulatedGridState = gameModel.getGrid();
-            simulatedGridState = gameModel.movePiece(simulatedGridState, tempMove, true);
+            simulatedGridState = gameModel.simulateMovePiece(gameModel.getImmutableGrid(), tempMove);
 
             totalOpponentMovesAfterMove = gameModel.countTotalLegalMoves(simulatedGridState, myColor.getOpposite());
             List<MovementAction> newLegalOpponentMoves = gameModel.getLegalMoves(simulatedGridState, myColor.getOpposite());
             PriorityQueue<Pair<Integer, MovementAction>> bestOpponentMovesPQ = getBestSimpleMoves(simulatedGridState, newLegalOpponentMoves, myColor.getOpposite());
             boolean hasWinningKeyForOpponent = bestOpponentMovesPQ.stream().anyMatch(p -> p.getKey() == 10);
 
-            if (totalOpponentMovesAfterMove <= totalOpponentMovesBeforeMove && !gameModel.checkWin(simulatedGridState).get(myColor.getOpposite()) && !hasWinningKeyForOpponent) {
-                bestMovesToSurround.add(new Pair<>(getPieceCostByPieceType(gameModel.getGrid().get(tempMove.getFrom()).peek().getPiece().getType()), tempMove));
+            if (totalOpponentMovesAfterMove <= totalOpponentMovesBeforeMove && !gameModel.checkWin(simulatedGridState, myColor).get(myColor.getOpposite()) && !hasWinningKeyForOpponent) {
+                bestMovesToSurround.add(new Pair<>(getPieceCostByPieceType(gameModel.getImmutableGrid().get(tempMove.getFrom()).get(0).getPiece().getType()), tempMove));
                 totalOpponentMovesBeforeMove = totalOpponentMovesAfterMove;
                 bestMove = tempMove;
             }
@@ -593,13 +633,10 @@ public class AIPlayer {
         for (PlacementAction placementAction : legalPlacements) {
             for (Map.Entry<PieceType, Integer> entry : myPiecesCount.entrySet()) {
                 PieceWrapper pieceWrapper = new PieceWrapper(new Piece(entry.getKey(), myColor));
-
-                simulatedGridState = gameModel.getGrid();
-                pair = gameModel.placePiece(simulatedGridState, myColor, pieceWrapper, placementAction, true);
-                simulatedGridState = pair.getKey();
+                simulatedGridState = gameModel.simulatePlacePiece(myColor, gameModel.getImmutableGrid(), pieceWrapper, placementAction).getKey();
 
                 totalOpponentMovesAfterMove = gameModel.countTotalLegalMoves(simulatedGridState, myColor.getOpposite());
-                if (gameModel.countNeighbours(simulatedGridState, opponentQBCoord) > numOpponentQBNeighborsBeforeMove && totalOpponentMovesAfterMove <= totalOpponentMovesBeforeMove && !gameModel.checkWin(simulatedGridState).get(myColor.getOpposite())) {
+                if (gameModel.countNeighbours(simulatedGridState, opponentQBCoord) > numOpponentQBNeighborsBeforeMove && totalOpponentMovesAfterMove <= totalOpponentMovesBeforeMove && !gameModel.checkWin(simulatedGridState, myColor).get(myColor.getOpposite())) {
                     totalOpponentMovesBeforeMove = totalOpponentMovesAfterMove;
                     bestPlacement = placementAction;
                     pieceToPlace = pieceWrapper;
@@ -630,15 +667,15 @@ public class AIPlayer {
         if (opponentQueenCoord == null) { // Possible in the first 8 moves into the game.
             return false;
         }
-        int surroundedCount = gameModel.countNeighbours(gameModel.getGrid(), opponentQueenCoord) + 1; // +1 is for bias because we want to prioritize surrounding the queen.
+        int surroundedCount = gameModel.countNeighbours(gameModel.getImmutableGrid(), opponentQueenCoord) + 1; // +1 is for bias because we want to prioritize surrounding the queen.
         return aiPieceCount >= pieceThresholdForSurroundingQB && surroundedCount >= opponentQBSurroundPercent;
     }
 
-    private int evaluateBoardControl(Map<HexCoordinate, Deque<PieceWrapper>> gridState, PieceColor color) {
+    private int evaluateBoardControl(PMap<HexCoordinate, PStack<PieceWrapper>> gridState, PieceColor color) {
         // For example, reward centralization or pieces that threaten many opponent moves.
         int controlScore = 0;
-        for (Map.Entry<HexCoordinate, Deque<PieceWrapper>> entry : gridState.entrySet()) {
-            PieceWrapper piece = entry.getValue().peek();
+        for (PMap.Entry<HexCoordinate, PStack<PieceWrapper>> entry : gridState.entrySet()) {
+            PieceWrapper piece = entry.getValue().get(0);
             if (piece != null && pieceBelongsTo(piece, color)) {
                 // A simple metric: the lower the coordinate values, the more central (as an example).
                 controlScore += (10 - Math.abs(entry.getKey().getQ())) + (10 - Math.abs(entry.getKey().getR()));
