@@ -311,6 +311,7 @@ public class AIPlayer {
         List<MovementAction> legalOpponentMoves = gameModel.getLegalMoves(myColor.getOpposite());
         List<MovementAction> newLegalOpponentMoves;
         PriorityQueue<Pair<Integer, MovementAction>> bestOpponentMovesPQ = getBestSimpleMoves(gameModel.getGrid(), legalOpponentMoves, myColor.getOpposite());
+        PriorityQueue<Pair<Integer, MovementAction>> bestOpponentMovesPQAfterMove;
         if (bestOpponentMovesPQ == null) return null;
         List<MovementAction> bestOpponentMovesList = priorityQueueMovesToListMoves(bestOpponentMovesPQ);
 
@@ -324,11 +325,13 @@ public class AIPlayer {
             simulatedGridState = gameModel.getGrid();
             simulatedGridState = gameModel.movePiece(simulatedGridState, move, true);
             newLegalOpponentMoves = gameModel.getLegalMoves(simulatedGridState, myColor.getOpposite());
+            bestOpponentMovesPQAfterMove = getBestSimpleMoves(simulatedGridState, newLegalOpponentMoves, myColor.getOpposite());
+
             int blockedWinningMoves = 0;
             for (MovementAction bestOpponentMove : bestOpponentMovesList) {
                 if (!newLegalOpponentMoves.contains(bestOpponentMove)) {
                     // System.out.println("BLOCKING WINNING MOVE: " + isWinningMove(bestOpponentMove, bestOpponentMovesPQ));
-                    if (isWinningMove(bestOpponentMove, bestOpponentMovesPQ) && !gameModel.checkWin(simulatedGridState).get(myColor.getOpposite())) {
+                    if (isWinningMove(bestOpponentMove, bestOpponentMovesPQ) && (bestOpponentMovesPQAfterMove == null || bestOpponentMovesPQAfterMove.isEmpty() || bestOpponentMovesPQAfterMove.peek().getKey() != 10)) {
                         blockedWinningMoves++; // Track if it blocks a direct win.
                     }
                 }
@@ -415,22 +418,24 @@ public class AIPlayer {
         PieceWrapper newPlacedPiece, pieceToPlace = null;
         for (PlacementAction placement : legalPlacements) {
             for (Map.Entry<PieceType, Integer> entry : myPiecesCount.entrySet()) {
-                newPlacedPiece = new PieceWrapper(new Piece(entry.getKey(), myColor));
+                if (entry.getValue() > 0) {
+                    newPlacedPiece = new PieceWrapper(new Piece(entry.getKey(), myColor));
 
-                simulatedGridState = gameModel.getGrid();
-                PlacementAction placementAction = new PlacementAction(placement.getDestination());
-                pair = gameModel.placePiece(simulatedGridState, myColor, newPlacedPiece, placementAction, true);
-                simulatedGridState = pair.getKey();
-                score = evaluateMobility(simulatedGridState, myColor);
-                // Subtract a bias from placements so that moves win if scores are close.
-                // System.out.println("AI Pieces count: " + aiPieceCount +"\nScore: " + score);
+                    simulatedGridState = gameModel.getGrid();
+                    PlacementAction placementAction = new PlacementAction(placement.getDestination());
+                    pair = gameModel.placePiece(simulatedGridState, myColor, newPlacedPiece, placementAction, true);
+                    simulatedGridState = pair.getKey();
+                    score = evaluateMobility(simulatedGridState, myColor);
+                    // Subtract a bias from placements so that moves win if scores are close.
+                    // System.out.println("AI Pieces count: " + aiPieceCount +"\nScore: " + score);
 
-                if (aiPieceCount < gameModel.getPlacedPiecesCount(myColor.getOpposite()))
-                    score += 20;
-                if (score > bestScore) {
-                    pieceToPlace = newPlacedPiece;
-                    bestMove = placementAction;
-                    bestScore = score;
+                    if (aiPieceCount < gameModel.getPlacedPiecesCount(myColor.getOpposite()))
+                        score += 20;
+                    if (score > bestScore) {
+                        pieceToPlace = newPlacedPiece;
+                        bestMove = placementAction;
+                        bestScore = score;
+                    }
                 }
             }
         }
