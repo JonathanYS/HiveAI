@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.shape.Polygon?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Button?>
+<?import javafx.geometry.Insets?>
+
+<StackPane xmlns:fx="http://javafx.com/fxml"
+           fx:controller="com.example.hive.WinScreenController" style="-fx-background-color: #444244;">
+
+    <VBox alignment="TOP_CENTER" spacing="40.0" translateY="280">
+        <padding>
+            <Insets bottom="50.0" left="50.0" right="50.0" top="20.0"/>
+        </padding>
+
+        <!-- Winner Announcement -->
+        <Label fx:id="winnerLabel" text="Black Won!" style="-fx-font-size: 50px; -fx-font-weight: bold; -fx-text-fill: white;"/>
+
+        <!-- Play Again Message -->
+        <Label text="Play again and choose your pieces" style="-fx-font-size: 34px; -fx-text-fill: white;"/>
+
+        <HBox alignment="CENTER" spacing="100.0">
+            <Button fx:id="black" scaleX="2" scaleY="2" text="Black" textFill="white"
+                    style="-fx-background-color: black;"
+                    onAction="#blackPieces"/>
+            <Button fx:id="white" scaleX="2" scaleY="2" text="White" textFill="black"
+                    style="-fx-background-color: white;"
+                    onAction="#whitePieces"/>
+        </HBox>
+    </VBox>
+
+</StackPane>

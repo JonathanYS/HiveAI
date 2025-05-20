@@ -1,0 +1,23 @@
+Welcome to Hive!
+
+Objective:
+Surround the opponent’s Queen Bee with pieces from either color.
+
+Game Setup:
+• Each player has 11 tiles: Queen Bee, Spiders, Beetles, Grasshoppers, and Ants.
+
+Game Rules:
+• You must place your Queen Bee by the fourth turn.
+• Pieces must always touch at least one tile of the same color when placed (except first move).
+• Pieces cannot move if it breaks the Hive apart.
+• Each piece has unique movement rules:
+  - Queen Bee: 1 tile per turn.
+  - Beetle: 1 tile per turn, can climb on other tiles.
+  - Grasshopper: Jumps over tiles in a straight line.
+  - Spider: Moves exactly 3 tiles around the Hive.
+  - Ant: Moves to any position around the Hive.
+
+Win Condition:
+The first player to completely surround the opponent’s Queen wins.
+
+Enjoy the game!
