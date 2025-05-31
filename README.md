@@ -1,2 +1,2 @@
 # HiveAI
- Game engine and FSM for the Hive board game
+ Game engine and FSM for the Hive board game.
