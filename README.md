@@ -1,8 +1,8 @@
 # HiveAI
  Game engine and FSM for the Hive board game.
 
-![alt text](images/main_screen.png)
-![alt text](images/main_screen.png)
+![alt text](README_images/main_screen.png)
+![alt text](README_images/main_screen.png)
 
 
 
